@@ -49,23 +49,48 @@ def salvar_pedido(ws, desc, qtd, local, obs):
     ws.append_row(linha)
     return novo_id
 
-# Interface
-st.title("📝 Novo Pedido de Compra")
+# Menu lateral
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/2838/2838912.png", width=100)
+    st.title("Menu")
+    pagina = st.radio(
+        "Navegação",
+        ["📝 Fazer Pedido", "🔒 Área do Comprador"]
+    )
 
-with st.form("pedido"):
-    descricao = st.text_area("Descrição do Material*")
-    col1, col2 = st.columns(2)
-    with col1:
-        quantidade = st.number_input("Quantidade*", min_value=1, value=1)
-    with col2:
-        local = st.text_input("Local de Utilização*")
-    observacoes = st.text_area("Observações")
+# Página de Pedido
+if pagina == "📝 Fazer Pedido":
+    st.title("📝 Novo Pedido de Compra")
+    st.markdown("---")
     
-    if st.form_submit_button("Enviar Pedido"):
-        if descricao and local:
-            ws = conectar_google_sheets()
-            id_pedido = salvar_pedido(ws, descricao, quantidade, local, observacoes)
-            st.success(f"✅ Pedido #{id_pedido} enviado!")
-            st.balloons()
-        else:
-            st.error("Preencha os campos obrigatórios*")
+    with st.form("pedido"):
+        descricao = st.text_area("Descrição do Material*", height=100)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            quantidade = st.number_input("Quantidade*", min_value=1, value=1)
+        with col2:
+            local = st.text_input("Local de Utilização*")
+        
+        observacoes = st.text_area("Observações", height=80)
+        
+        st.markdown("---")
+        
+        if st.form_submit_button("✅ Enviar Pedido", use_container_width=True):
+            if descricao and local:
+                try:
+                    ws = conectar_google_sheets()
+                    id_pedido = salvar_pedido(ws, descricao, quantidade, local, observacoes)
+                    st.success(f"✅ Pedido #{id_pedido} enviado com sucesso!")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"Erro ao salvar: {str(e)}")
+            else:
+                st.error("⚠️ Preencha os campos obrigatórios (*)")
+    
+    st.markdown("---")
+    st.info("💡 Seu pedido será analisado pelo comprador.")
+
+# Página do Comprador (será redirecionada)
+else:
+    st.switch_page("pages/2_comprador.py")
