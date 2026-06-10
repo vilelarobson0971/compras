@@ -7,7 +7,7 @@ import json
 
 # Configurações
 SENHA = "brasa@2026"
-SHEET_NAME = "Pedidos_Compras"
+SHEET_NAME = "Pedido_Compras"
 WORKSHEET_NAME = "Pedidos"
 
 # Configuração da página
