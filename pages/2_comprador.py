@@ -19,6 +19,8 @@ def conectar_google_sheets():
     client = gspread.authorize(creds)
     sheet = client.open("Pedidos_Compras")
 
+return worksheet
+
 def carregar_pedidos(ws):
     dados = ws.get_all_records()
     return pd.DataFrame(dados)
