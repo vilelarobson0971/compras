@@ -7,16 +7,12 @@ import json
 
 # Configurações
 SENHA = "brasa@2026"
-SHEET_NAME = "Pedido_Compras"
-WORKSHEET_NAME = "Pedidos"
 
 # Configuração da página
 st.set_page_config(page_title="Gerenciar Pedidos", page_icon="📋", layout="wide")
 
 # Função para conectar ao Google Sheets
-@st.cache_resource
 def conectar_google_sheets():
-    """Conecta ao Google Sheets e retorna a worksheet"""
     try:
         segredos = st.secrets["gcp_service_account"]
         
@@ -38,8 +34,23 @@ def conectar_google_sheets():
         
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
-        sheet = client.open(SHEET_NAME)
-        return sheet.worksheet(WORKSHEET_NAME)
+        
+        # ⭐ NOME CORRETO DA PLANILHA (sem "s" em Pedido) ⭐
+        sheet = client.open("Pedido_Compras")
+        
+        # Retornar a worksheet "Pedidos"
+        return sheet.worksheet("Pedidos")
+    
+    except gspread.SpreadsheetNotFound:
+        st.error("""
+        ❌ Planilha 'Pedido_Compras' não encontrada!
+        
+        Verifique se:
+        1. O nome exato da planilha é 'Pedido_Compras'
+        2. Ela foi compartilhada com o email: bot-planilha@infralinkcompras.iam.gserviceaccount.com
+        3. A permissão é de 'Editor'
+        """)
+        return None
     
     except Exception as e:
         st.error(f"❌ Erro ao conectar: {str(e)}")
@@ -220,6 +231,7 @@ else:
                 <p><strong>🔢 Quantidade:</strong> {row['Quantidade']}</p>
                 <p><strong>📍 Local:</strong> {row['Local']}</p>
                 <p><strong>📅 Data:</strong> {row['Data']}</p>
+                <p><strong>📝 Observações:</strong> {row.get('Observações', '-')}</p>
             </div>
             """, unsafe_allow_html=True)
             
