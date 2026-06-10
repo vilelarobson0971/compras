@@ -9,10 +9,7 @@ st.set_page_config(page_title="Sistema de Pedidos", page_icon="🛒", layout="wi
 # Conectar ao Google Sheets
 def conectar_google_sheets():
     creds_dict = dict(st.secrets["gcp_service_account"])
-    private_key = creds_dict["private_key"]
-    if '\\n' in private_key:
-        private_key = private_key.replace('\\n', '\n')
-    creds_dict["private_key"] = private_key
+    creds_dict["private_key"] = creds_dict["private_key"].replace('\\n', '\n')
     
     scope = [
         'https://spreadsheets.google.com/feeds',
