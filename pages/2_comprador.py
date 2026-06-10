@@ -9,6 +9,7 @@ SENHA = "brasa@2026"
 # Conectar ao Google Sheets
 def conectar_google_sheets():
     creds_dict = dict(st.secrets["gcp_service_account"])
+    creds_dict["private_key"] = creds_dict["private_key"].replace('\\n', '\n')
     
     scope = [
         'https://spreadsheets.google.com/feeds',
