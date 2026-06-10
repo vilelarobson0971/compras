@@ -9,10 +9,7 @@ SENHA = "brasa@2026"
 # Conectar ao Google Sheets
 def conectar_google_sheets():
     creds_dict = dict(st.secrets["gcp_service_account"])
-    private_key = creds_dict["private_key"]
-    if '\\n' in private_key:
-        private_key = private_key.replace('\\n', '\n')
-    creds_dict["private_key"] = private_key
+    creds_dict["private_key"] = creds_dict["private_key"].replace('\\n', '\n')
     
     scope = [
         'https://spreadsheets.google.com/feeds',
@@ -21,7 +18,6 @@ def conectar_google_sheets():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     sheet = client.open("Pedidos_Compras")
-    return sheet.worksheet("Pedidos")
 
 def carregar_pedidos(ws):
     dados = ws.get_all_records()
