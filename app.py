@@ -8,7 +8,7 @@ import json
 st.set_page_config(page_title="Sistema de Pedidos", page_icon="🛒", layout="wide")
 
 # Configurações
-SHEET_NAME = "Pedidos_Compras"
+SHEET_NAME = "Pedido_Compras"
 WORKSHEET_NAME = "Pedidos"
 
 # Conectar ao Google Sheets
