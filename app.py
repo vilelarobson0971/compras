@@ -7,14 +7,8 @@ import json
 
 st.set_page_config(page_title="Sistema de Pedidos", page_icon="🛒", layout="wide")
 
-# Configurações
-SHEET_NAME = "Pedido_Compras"
-WORKSHEET_NAME = "Pedidos"
-
 # Conectar ao Google Sheets
-@st.cache_resource
 def conectar_google_sheets():
-    """Conecta ao Google Sheets e retorna a worksheet"""
     try:
         # Obter os secrets
         segredos = st.secrets["gcp_service_account"]
@@ -25,37 +19,48 @@ def conectar_google_sheets():
         else:
             creds_dict = dict(segredos)
         
-        # Corrigir quebras de linha na chave privada
+        # Garantir que as quebras de linha estão corretas na chave privada
         if 'private_key' in creds_dict:
             private_key = creds_dict["private_key"]
             if isinstance(private_key, str):
                 private_key = private_key.replace('\\n', '\n')
                 creds_dict["private_key"] = private_key
         
-        # Escopos necessários
         scope = [
             'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive'
         ]
         
-        # Criar credenciais e conectar
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
-        sheet = client.open(SHEET_NAME)
         
-        # Obter ou criar worksheet
+        # ⭐ NOME CORRETO DA PLANILHA (sem "s" em Pedido) ⭐
+        sheet = client.open("Pedido_Compras")
+        
+        # Obter ou criar a worksheet "Pedidos"
         try:
-            worksheet = sheet.worksheet(WORKSHEET_NAME)
-        except gspread.WorksheetNotFound:
-            worksheet = sheet.add_worksheet(WORKSHEET_NAME, rows=1000, cols=20)
-            # Adicionar cabeçalho
+            worksheet = sheet.worksheet("Pedidos")
+        except:
+            worksheet = sheet.add_worksheet("Pedidos", 1000, 20)
             cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
             worksheet.append_row(cabecalho)
+            st.info("✅ Planilha 'Pedidos' criada automaticamente!")
         
         return worksheet
     
+    except gspread.SpreadsheetNotFound:
+        st.error("""
+        ❌ Planilha 'Pedido_Compras' não encontrada!
+        
+        Verifique se:
+        1. O nome exato da planilha é 'Pedido_Compras'
+        2. Ela foi compartilhada com o email: bot-planilha@infralinkcompras.iam.gserviceaccount.com
+        3. A permissão é de 'Editor'
+        """)
+        return None
+    
     except Exception as e:
-        st.error(f"❌ Erro ao conectar ao Google Sheets: {str(e)}")
+        st.error(f"❌ Erro ao conectar: {str(e)}")
         return None
 
 def obter_proximo_id(ws):
