@@ -35,7 +35,7 @@ def conectar_google_sheets():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
         
-        # ⭐ NOME CORRETO DA PLANILHA (sem "s" em Pedido) ⭐
+        # Nome correto da planilha
         sheet = client.open("Pedido_Compras")
         
         # Retornar a worksheet "Pedidos"
@@ -67,6 +67,13 @@ def carregar_pedidos(ws):
                 df['ID'] = pd.to_numeric(df['ID'], errors='coerce')
                 df = df.dropna(subset=['ID'])
                 df['ID'] = df['ID'].astype(int)
+            
+            # Garantir que as colunas necessárias existam
+            colunas_esperadas = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
+            for col in colunas_esperadas:
+                if col not in df.columns:
+                    df[col] = 'Não informado'
+            
             return df
         return pd.DataFrame()
     except Exception as e:
@@ -88,8 +95,8 @@ def atualizar_status(ws, id_pedido, novo_status):
                 col_atualizacao = cabecalho.index('Ultima_Atualizacao') + 1
             except ValueError:
                 # Fallback para posições fixas
-                col_status = 7
-                col_atualizacao = 8
+                col_status = 8  # Agora Status é a coluna 8
+                col_atualizacao = 9  # Ultima_Atualizacao é a coluna 9
             
             # Atualizar células
             ws.update_cell(celula.row, col_status, novo_status)
@@ -147,6 +154,14 @@ with st.sidebar:
         default=['Aguardando', 'Comprando']
     )
     
+    # Filtro por solicitante
+    solicitantes = df['Solicitante'].unique()
+    solicitante_selecionado = st.selectbox(
+        "👤 Solicitante",
+        options=['Todos'] + sorted(solicitantes.tolist()),
+        index=0
+    )
+    
     # Filtro por período
     st.subheader("📅 Período")
     col1, col2 = st.columns(2)
@@ -154,6 +169,8 @@ with st.sidebar:
         data_inicio = st.date_input("Data inicial", value=None)
     with col2:
         data_fim = st.date_input("Data final", value=None)
+    
+    st.divider()
     
     # Botão para recarregar
     if st.button("🔄 Recarregar dados", use_container_width=True):
@@ -166,6 +183,9 @@ df_filtrado = df.copy()
 if status_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Status'].isin(status_selecionados)]
 
+if solicitante_selecionado != 'Todos':
+    df_filtrado = df_filtrado[df_filtrado['Solicitante'] == solicitante_selecionado]
+
 if data_inicio and 'Data' in df_filtrado.columns:
     df_filtrado['Data'] = pd.to_datetime(df_filtrado['Data'])
     df_filtrado = df_filtrado[df_filtrado['Data'] >= pd.to_datetime(data_inicio)]
@@ -175,15 +195,17 @@ if data_fim and 'Data' in df_filtrado.columns:
 
 # Estatísticas
 st.markdown("### 📊 Resumo")
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
     st.metric("Total de Pedidos", len(df_filtrado))
 with col2:
     st.metric("Aguardando", len(df_filtrado[df_filtrado['Status'] == 'Aguardando']))
 with col3:
-    st.metric("Em Compra", len(df_filtrado[df_filtrado['Status'] == 'Comprando']))
+    st.metric("Comprando", len(df_filtrado[df_filtrado['Status'] == 'Comprando']))
 with col4:
     st.metric("Entregues", len(df_filtrado[df_filtrado['Status'] == 'Entregue']))
+with col5:
+    st.metric("Cancelados", len(df_filtrado[df_filtrado['Status'] == 'Cancelado']))
 
 # Exibir pedidos
 st.markdown("### 📦 Lista de Pedidos")
@@ -224,19 +246,27 @@ else:
                         padding: 5px 10px;
                         border-radius: 20px;
                         font-size: 12px;
+                        font-weight: bold;
                     '>{row['Status']}</span>
                 </div>
                 <hr style='margin: 10px 0;'>
-                <p><strong>📝 Material:</strong> {row['Descrição']}</p>
-                <p><strong>🔢 Quantidade:</strong> {row['Quantidade']}</p>
-                <p><strong>📍 Local:</strong> {row['Local']}</p>
-                <p><strong>📅 Data:</strong> {row['Data']}</p>
-                <p><strong>📝 Observações:</strong> {row.get('Observações', '-')}</p>
+                <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>
+                    <div>
+                        <p><strong>📝 Material:</strong> {row['Descrição']}</p>
+                        <p><strong>🔢 Quantidade:</strong> {row['Quantidade']}</p>
+                        <p><strong>👤 Solicitante:</strong> {row['Solicitante']}</p>
+                    </div>
+                    <div>
+                        <p><strong>📍 Local:</strong> {row['Local']}</p>
+                        <p><strong>📅 Data:</strong> {row['Data']}</p>
+                        <p><strong>📝 Observações:</strong> {row.get('Observações', '-')}</p>
+                    </div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
             
             # Botões de ação
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
                 if st.button("⏳ Aguardando", key=f"ag_{row['ID']}", use_container_width=True):
@@ -262,8 +292,26 @@ else:
                         st.warning(f"⚠️ Pedido #{row['ID']} cancelado")
                         st.rerun()
             
+            with col5:
+                # Botão para ver detalhes completos
+                with st.expander(f"📋 Ver detalhes completos", key=f"exp_{row['ID']}"):
+                    st.json({
+                        "ID": int(row['ID']),
+                        "Data": row['Data'],
+                        "Material": row['Descrição'],
+                        "Quantidade": row['Quantidade'],
+                        "Solicitante": row['Solicitante'],
+                        "Local": row['Local'],
+                        "Observações": row.get('Observações', '-'),
+                        "Status": row['Status'],
+                        "Última Atualização": row.get('Ultima_Atualizacao', '-')
+                    })
+            
             st.markdown("---")
+    
+    # Informação de quantidade
+    st.caption(f"📊 Mostrando {len(df_filtrado)} pedido(s) de um total de {len(df)}")
     
     # Paginação para muitos pedidos
     if len(df_filtrado) > 20:
-        st.info(f"Mostrando {len(df_filtrado)} pedidos. Use os filtros para refinar a busca.")
+        st.info(f"💡 Dica: Use os filtros na barra lateral para refinar a busca e encontrar pedidos específicos mais rapidamente.")
