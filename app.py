@@ -9,19 +9,26 @@ import requests
 from io import BytesIO
 
 st.set_page_config(
-    page_title="Sistema de Pedidos", 
-    page_icon="🛒",  # Ícone da aba do navegador (pode manter ou trocar)
+    page_title="Sistema de Pedidos - Infralink", 
+    page_icon="🛒",
     layout="wide"
 )
 
 # Função para carregar a logo do GitHub
 def carregar_logo():
     try:
-        # URL da sua logo no GitHub (RAW)
+        # ✅ URL CORRETA da sua logo no GitHub (formato RAW)
         url_logo = "https://raw.githubusercontent.com/vilelaborbson0971/compras/main/Logo.jpeg"
-        response = requests.get(url_logo)
-        img = Image.open(BytesIO(response.content))
-        return img
+        
+        response = requests.get(url_logo, timeout=10)
+        
+        if response.status_code == 200:
+            img = Image.open(BytesIO(response.content))
+            return img
+        else:
+            st.warning(f"Logo não encontrada (status: {response.status_code})")
+            return None
+            
     except Exception as e:
         st.warning(f"Não foi possível carregar a logo: {str(e)}")
         return None
@@ -147,13 +154,19 @@ col_logo, col_title = st.columns([1, 5])
 
 with col_logo:
     if logo:
-        st.image(logo, width=100)
+        st.image(logo, width=120)
     else:
-        st.image("https://via.placeholder.com/100x100?text=Logo", width=100)
+        # Logo placeholder caso não carregue
+        st.markdown("""
+        <div style="width:120px;height:120px;background:#f0f2f6;border-radius:10px;display:flex;align-items:center;justify-content:center;border:1px solid #ddd;">
+            📦
+        </div>
+        """, unsafe_allow_html=True)
 
 with col_title:
     st.title("📝 Sistema de Pedidos de Compra")
-    st.markdown("**Preencha o formulário abaixo para solicitar um novo pedido**")
+    st.markdown("**Infralink - Gestão de Compras**")
+    st.caption("Preencha o formulário abaixo para solicitar um novo pedido")
 
 st.divider()
 
@@ -231,4 +244,4 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
 st.divider()
 col_footer1, col_footer2, col_footer3 = st.columns(3)
 with col_footer2:
-    st.caption(f"© {datetime.now().year} - Sistema de Pedidos de Compra v1.0")
+    st.caption(f"© {datetime.now().year} - Infralink Sistema de Pedidos de Compra v1.0")
