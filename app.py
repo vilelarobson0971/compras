@@ -219,8 +219,8 @@ with col_logo:
         """, unsafe_allow_html=True)
 
 with col_title:
-    st.title("📝 Sistema de Pedidos de Compra")
-    st.markdown("**Infralink - Gestão de Compras**")
+    st.title("📝 Pedidos de Compra")
+    st.markdown("**By Robson Vilela 2026**")
     st.caption("Preencha o formulário abaixo para solicitar um novo pedido")
 
 st.divider()
@@ -316,4 +316,4 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
 st.divider()
 col_footer1, col_footer2, col_footer3 = st.columns(3)
 with col_footer2:
-    st.caption(f"© {datetime.now().year} - Infralink Sistema de Pedidos de Compra v1.0")
+    st.caption(f"© {datetime.now().year} - By Robson Vilela")
