@@ -14,38 +14,40 @@ st.set_page_config(
     layout="wide"
 )
 
-# Função para carregar a logo do GitHub
+# Função para carregar a logo do GitHub com múltiplas tentativas
 def carregar_logo():
-    try:
-        # ✅ URL CORRETA da sua logo no GitHub (formato RAW)
-        url_logo = "https://raw.githubusercontent.com/vilelaborbson0971/compras/main/Logo.jpeg"
-        
-        response = requests.get(url_logo, timeout=10)
-        
-        if response.status_code == 200:
-            img = Image.open(BytesIO(response.content))
-            return img
-        else:
-            st.warning(f"Logo não encontrada (status: {response.status_code})")
-            return None
-            
-    except Exception as e:
-        st.warning(f"Não foi possível carregar a logo: {str(e)}")
-        return None
+    # Lista de possíveis URLs para tentar
+    urls_tentar = [
+        "https://raw.githubusercontent.com/vilelaborbson0971/compras/main/Logo.jpeg",
+        "https://raw.githubusercontent.com/vilelaborbson0971/compras/main/Logo.jpg",
+        "https://raw.githubusercontent.com/vilelaborbson0971/compras/main/logo.jpeg",
+        "https://raw.githubusercontent.com/vilelaborbson0971/compras/main/logo.jpg",
+        "https://github.com/vilelaborbson0971/compras/blob/main/Logo.jpeg?raw=true",
+    ]
+    
+    for url in urls_tentar:
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                img = Image.open(BytesIO(response.content))
+                st.success(f"✅ Logo carregada com sucesso!")
+                return img
+        except:
+            continue
+    
+    st.warning("⚠️ Logo não encontrada. Verifique se o arquivo está no repositório.")
+    return None
 
 # Conectar ao Google Sheets
 def conectar_google_sheets():
     try:
-        # Obter os secrets
         segredos = st.secrets["gcp_service_account"]
         
-        # Converter para dicionário se necessário
         if isinstance(segredos, str):
             creds_dict = json.loads(segredos)
         else:
             creds_dict = dict(segredos)
         
-        # Garantir que as quebras de linha estão corretas na chave privada
         if 'private_key' in creds_dict:
             private_key = creds_dict["private_key"]
             if isinstance(private_key, str):
@@ -60,10 +62,8 @@ def conectar_google_sheets():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
         
-        # Nome correto da planilha
         sheet = client.open("Pedido_Compras")
         
-        # Obter ou criar a worksheet "Pedidos"
         try:
             worksheet = sheet.worksheet("Pedidos")
         except:
@@ -90,15 +90,13 @@ def conectar_google_sheets():
         return None
 
 def obter_proximo_id(ws):
-    """Obtém o próximo ID disponível"""
     try:
         dados = ws.get_all_values()
-        if len(dados) <= 1:  # Apenas cabeçalho
+        if len(dados) <= 1:
             return 1
         
-        # Pegar todos os IDs da primeira coluna (ignorando cabeçalho)
         ids = []
-        for row in dados[1:]:  # Pular cabeçalho
+        for row in dados[1:]:
             if row and row[0].isdigit():
                 ids.append(int(row[0]))
         
@@ -112,18 +110,14 @@ def obter_proximo_id(ws):
         return None
 
 def salvar_pedido(ws, desc, qtd, local, obs):
-    """Salva um novo pedido na planilha"""
     try:
-        # Validar dados
         if not desc or not local:
             return None
         
-        # Obter próximo ID
         novo_id = obter_proximo_id(ws)
         if novo_id is None:
             return None
         
-        # Criar linha
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         linha = [
             novo_id,
@@ -136,7 +130,6 @@ def salvar_pedido(ws, desc, qtd, local, obs):
             agora
         ]
         
-        # Salvar
         ws.append_row(linha)
         return novo_id
     
@@ -156,10 +149,10 @@ with col_logo:
     if logo:
         st.image(logo, width=120)
     else:
-        # Logo placeholder caso não carregue
+        # Mostrar um ícone personalizado quando a logo não carrega
         st.markdown("""
-        <div style="width:120px;height:120px;background:#f0f2f6;border-radius:10px;display:flex;align-items:center;justify-content:center;border:1px solid #ddd;">
-            📦
+        <div style="width:120px;height:120px;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+            <span style="color:white;font-size:48px;">📦</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -177,7 +170,7 @@ if ws is None:
     st.error("Não foi possível conectar à planilha. Verifique suas configurações.")
     st.stop()
 
-# Formulário de pedido com layout aprimorado
+# Formulário de pedido
 with st.container():
     st.markdown("### 📋 Novo Pedido de Compra")
     
@@ -193,10 +186,9 @@ with st.container():
                                   placeholder="Ex: Almoxarifado Central | Obra X | Setor Y")
         
         observacoes = st.text_area("📝 Observações", 
-                                   placeholder="Informações adicionais sobre o pedido (prazo, fornecedor, etc.)...", 
+                                   placeholder="Informações adicionais sobre o pedido...", 
                                    height=80)
         
-        # Botões alinhados
         col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 2])
         with col_btn2:
             submitted = st.form_submit_button("✅ Enviar Pedido", use_container_width=True)
@@ -218,7 +210,7 @@ with st.container():
 
 st.divider()
 
-# Exibir últimos pedidos com visual aprimorado
+# Exibir últimos pedidos
 with st.expander("📋 Ver últimos pedidos", expanded=False):
     try:
         dados = ws.get_all_records()
@@ -226,7 +218,6 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
             df = pd.DataFrame(dados)
             df = df.sort_values('ID', ascending=False).head(5)
             
-            # Formatar a data para exibição
             if 'Data' in df.columns:
                 df['Data'] = pd.to_datetime(df['Data']).dt.strftime('%d/%m/%Y %H:%M')
             
@@ -240,7 +231,7 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
     except Exception as e:
         st.warning(f"Não foi possível carregar os pedidos: {str(e)}")
 
-# Rodapé profissional
+# Rodapé
 st.divider()
 col_footer1, col_footer2, col_footer3 = st.columns(3)
 with col_footer2:
