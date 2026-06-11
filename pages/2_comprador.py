@@ -4,7 +4,6 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 import json
-import numpy as np
 
 # Configurações
 SENHA = "brasa@2026"
@@ -57,157 +56,122 @@ def conectar_google_sheets():
         st.error(f"❌ Erro ao conectar: {str(e)}")
         return None
 
-def carregar_pedidos(ws):
-    """Carrega todos os pedidos da planilha com tratamento robusto de erros"""
+def carregar_pedidos_sem_pandas(ws):
+    """Carrega pedidos sem usar pandas para evitar erros de conversão"""
     try:
-        # Obter todos os dados da planilha
+        # Obter todos os dados
         todos_dados = ws.get_all_values()
         
         if not todos_dados or len(todos_dados) <= 1:
-            return pd.DataFrame()
+            return []
         
         # Primeira linha é o cabeçalho
         cabecalho = todos_dados[0]
         
-        # Limpar cabeçalho (remover espaços e caracteres especiais)
+        # Limpar cabeçalho
         cabecalho_limpo = []
         for col in cabecalho:
-            col_limpo = col.strip().replace('_', ' ').replace('-', ' ')
+            col_limpo = col.strip()
             if col_limpo:
                 cabecalho_limpo.append(col_limpo)
         
-        # Dados a partir da segunda linha
-        dados_linhas = todos_dados[1:]
+        # Mapear índices das colunas importantes
+        idx_id = None
+        idx_data = None
+        idx_desc = None
+        idx_qtd = None
+        idx_solicitante = None
+        idx_local = None
+        idx_obs = None
+        idx_status = None
+        idx_atualizacao = None
         
-        # Criar lista de dicionários
-        registros = []
-        for linha in dados_linhas:
-            # Pular linhas vazias
+        for i, col in enumerate(cabecalho_limpo):
+            col_lower = col.lower()
+            if 'id' in col_lower:
+                idx_id = i
+            elif 'data' in col_lower:
+                idx_data = i
+            elif 'descrição' in col_lower or 'descricao' in col_lower:
+                idx_desc = i
+            elif 'quantidade' in col_lower or 'qtd' in col_lower:
+                idx_qtd = i
+            elif 'solicitante' in col_lower:
+                idx_solicitante = i
+            elif 'local' in col_lower:
+                idx_local = i
+            elif 'observação' in col_lower or 'observacao' in col_lower or 'obs' in col_lower:
+                idx_obs = i
+            elif 'status' in col_lower:
+                idx_status = i
+            elif 'atualizacao' in col_lower or 'atualização' in col_lower:
+                idx_atualizacao = i
+        
+        # Processar linhas de dados
+        pedidos = []
+        for linha in todos_dados[1:]:
+            # Pular linha vazia
             if not linha or all(cell == '' or cell is None for cell in linha):
                 continue
             
-            registro = {}
-            for i, col_nome in enumerate(cabecalho_limpo):
-                if i < len(linha):
-                    valor = linha[i] if linha[i] else ''
-                    registro[col_nome] = valor
-                else:
-                    registro[col_nome] = ''
+            # Extrair dados usando os índices encontrados
+            pedido = {
+                'ID': int(linha[idx_id]) if idx_id is not None and idx_id < len(linha) and linha[idx_id] and str(linha[idx_id]).isdigit() else len(pedidos) + 1,
+                'Data': linha[idx_data] if idx_data is not None and idx_data < len(linha) else '',
+                'Descrição': linha[idx_desc] if idx_desc is not None and idx_desc < len(linha) else '',
+                'Quantidade': int(linha[idx_qtd]) if idx_qtd is not None and idx_qtd < len(linha) and linha[idx_qtd] and str(linha[idx_qtd]).isdigit() else 1,
+                'Solicitante': linha[idx_solicitante] if idx_solicitante is not None and idx_solicitante < len(linha) else '',
+                'Local': linha[idx_local] if idx_local is not None and idx_local < len(linha) else '',
+                'Observações': linha[idx_obs] if idx_obs is not None and idx_obs < len(linha) else '',
+                'Status': linha[idx_status] if idx_status is not None and idx_status < len(linha) else 'Aguardando',
+                'Ultima_Atualizacao': linha[idx_atualizacao] if idx_atualizacao is not None and idx_atualizacao < len(linha) else ''
+            }
             
-            if registro:
-                registros.append(registro)
+            # Validar dados mínimos
+            if pedido['Descrição'] and pedido['Solicitante']:
+                pedidos.append(pedido)
         
-        if not registros:
-            return pd.DataFrame()
-        
-        # Converter para DataFrame
-        df = pd.DataFrame(registros)
-        
-        # Mapeamento inteligente de colunas
-        mapeamento = {}
-        for col in df.columns:
-            col_lower = col.lower().strip()
-            if 'id' in col_lower:
-                mapeamento[col] = 'ID'
-            elif 'data' in col_lower:
-                mapeamento[col] = 'Data'
-            elif 'descrição' in col_lower or 'descricao' in col_lower or 'material' in col_lower:
-                mapeamento[col] = 'Descrição'
-            elif 'quantidade' in col_lower or 'qtd' in col_lower:
-                mapeamento[col] = 'Quantidade'
-            elif 'solicitante' in col_lower:
-                mapeamento[col] = 'Solicitante'
-            elif 'local' in col_lower:
-                mapeamento[col] = 'Local'
-            elif 'observação' in col_lower or 'observacao' in col_lower or 'obs' in col_lower:
-                mapeamento[col] = 'Observações'
-            elif 'status' in col_lower:
-                mapeamento[col] = 'Status'
-            elif 'ultima_atualizacao' in col_lower or 'última atualização' in col_lower or 'atualizacao' in col_lower:
-                mapeamento[col] = 'Ultima_Atualizacao'
-        
-        # Renomear colunas
-        if mapeamento:
-            df = df.rename(columns=mapeamento)
-        
-        # Garantir que ID seja numérico
-        if 'ID' in df.columns:
-            df['ID'] = pd.to_numeric(df['ID'], errors='coerce')
-            df = df.dropna(subset=['ID'])
-            df['ID'] = df['ID'].astype(int)
-        else:
-            # Criar IDs sequenciais se não existir coluna ID
-            df['ID'] = range(1, len(df) + 1)
-        
-        # Garantir que Quantidade seja numérica
-        if 'Quantidade' in df.columns:
-            df['Quantidade'] = pd.to_numeric(df['Quantidade'], errors='coerce').fillna(1).astype(int)
-        else:
-            df['Quantidade'] = 1
-        
-        # Garantir que as colunas necessárias existam
-        colunas_esperadas = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
-        for col in colunas_esperadas:
-            if col not in df.columns:
-                df[col] = 'Não informado'
-        
-        # Converter Data para datetime se possível
-        if 'Data' in df.columns:
-            try:
-                df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
-                # Substituir NaT por string
-                df['Data'] = df['Data'].fillna(pd.Timestamp.now())
-            except:
-                pass
-        
-        return df
+        return pedidos
         
     except Exception as e:
-        st.error(f"❌ Erro detalhado ao carregar pedidos: {str(e)}")
-        st.write("Debug - Primeiras 5 linhas da planilha:")
-        try:
-            dados_raw = ws.get_all_values()
-            st.write(dados_raw[:5])
-        except:
-            pass
-        return pd.DataFrame()
+        st.error(f"❌ Erro ao carregar pedidos: {str(e)}")
+        return []
 
 def atualizar_status(ws, id_pedido, novo_status):
     """Atualiza o status de um pedido"""
     try:
-        # Encontrar a linha do pedido (procurar na primeira coluna)
-        celula = None
-        dados = ws.get_all_values()
+        # Procurar a linha do pedido
+        todas_linhas = ws.get_all_values()
         
-        for i, linha in enumerate(dados, start=1):
+        linha_encontrada = None
+        for i, linha in enumerate(todas_linhas, start=1):
             if linha and len(linha) > 0 and str(linha[0]).strip() == str(id_pedido):
-                celula = type('obj', (object,), {'row': i})()
+                linha_encontrada = i
                 break
         
-        if celula:
-            cabecalho = ws.row_values(1)
-            
-            # Mapear colunas independente do nome
+        if linha_encontrada:
+            # Encontrar coluna de status
+            cabecalho = todas_linhas[0]
             col_status = None
             col_atualizacao = None
             
-            for i, col in enumerate(cabecalho):
+            for i, col in enumerate(cabecalho, start=1):
                 col_lower = col.lower().strip()
                 if 'status' in col_lower:
-                    col_status = i + 1
+                    col_status = i
                 if 'atualizacao' in col_lower or 'atualização' in col_lower:
-                    col_atualizacao = i + 1
+                    col_atualizacao = i
             
-            # Se não encontrou, usar posições padrão
+            # Se não encontrou, usar padrão
             if not col_status:
                 col_status = 8
             if not col_atualizacao:
                 col_atualizacao = 9
             
-            if col_status and col_atualizacao:
-                ws.update_cell(celula.row, col_status, novo_status)
-                ws.update_cell(celula.row, col_atualizacao, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                return True
+            # Atualizar células
+            ws.update_cell(linha_encontrada, col_status, novo_status)
+            ws.update_cell(linha_encontrada, col_atualizacao, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            return True
         return False
     except Exception as e:
         st.error(f"❌ Erro ao atualizar status: {str(e)}")
@@ -241,11 +205,15 @@ ws = conectar_google_sheets()
 if ws is None:
     st.stop()
 
-df = carregar_pedidos(ws)
+# Carregar pedidos sem usar pandas
+pedidos_lista = carregar_pedidos_sem_pandas(ws)
 
-if df.empty:
+if not pedidos_lista:
     st.info("📭 Nenhum pedido encontrado na planilha.")
     st.stop()
+
+# Converter para DataFrame apenas para exibição (após validar dados)
+df = pd.DataFrame(pedidos_lista)
 
 # Sidebar com filtros
 with st.sidebar:
@@ -305,9 +273,8 @@ if solicitante_selecionado != 'Todos':
 # Filtro de Data (ignora hora)
 if data_inicio or data_fim:
     if 'Data' in df_filtrado.columns:
-        # Converter para datetime se for string
-        if df_filtrado['Data'].dtype == 'object':
-            df_filtrado['Data'] = pd.to_datetime(df_filtrado['Data'], errors='coerce')
+        # Converter para datetime
+        df_filtrado['Data'] = pd.to_datetime(df_filtrado['Data'], errors='coerce')
         
         # Extrair apenas a data
         df_filtrado['Data_Somente'] = df_filtrado['Data'].dt.date
@@ -379,6 +346,12 @@ else:
         }
         cor_fundo = cores.get(row['Status'], '#F5F5F5')
         
+        # Formatar data para exibição
+        data_exibicao = row['Data']
+        if pd.notna(data_exibicao):
+            if isinstance(data_exibicao, pd.Timestamp):
+                data_exibicao = data_exibicao.strftime('%d/%m/%Y %H:%M')
+        
         # Card do pedido
         with st.container():
             st.markdown(f"""
@@ -410,7 +383,7 @@ else:
                     </div>
                     <div>
                         <p><strong>📍 Local:</strong> {row['Local']}</p>
-                        <p><strong>📅 Data:</strong> {row['Data']}</p>
+                        <p><strong>📅 Data:</strong> {data_exibicao}</p>
                         <p><strong>📝 Observações:</strong> {row.get('Observações', '-')}</p>
                     </div>
                 </div>
