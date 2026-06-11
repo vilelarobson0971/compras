@@ -57,11 +57,40 @@ def conectar_google_sheets():
         return None
 
 def carregar_pedidos(ws):
-    """Carrega todos os pedidos da planilha"""
+    """Carrega todos os pedidos da planilha com mapeamento inteligente de colunas"""
     try:
         dados = ws.get_all_records()
         if dados:
             df = pd.DataFrame(dados)
+            
+            # Mapeamento inteligente de colunas
+            mapeamento = {}
+            
+            # Mapear colunas que podem ter nomes diferentes
+            for col in df.columns:
+                col_lower = col.lower().strip()
+                if 'id' in col_lower:
+                    mapeamento[col] = 'ID'
+                elif 'data' in col_lower:
+                    mapeamento[col] = 'Data'
+                elif 'descrição' in col_lower or 'descricao' in col_lower:
+                    mapeamento[col] = 'Descrição'
+                elif 'quantidade' in col_lower or 'qtd' in col_lower:
+                    mapeamento[col] = 'Quantidade'
+                elif 'solicitante' in col_lower:
+                    mapeamento[col] = 'Solicitante'
+                elif 'local' in col_lower:
+                    mapeamento[col] = 'Local'
+                elif 'observação' in col_lower or 'observacao' in col_lower or 'obs' in col_lower:
+                    mapeamento[col] = 'Observações'
+                elif 'status' in col_lower:
+                    mapeamento[col] = 'Status'
+                elif 'ultima_atualizacao' in col_lower or 'última atualização' in col_lower:
+                    mapeamento[col] = 'Ultima_Atualizacao'
+            
+            # Renomear as colunas
+            df = df.rename(columns=mapeamento)
+            
             # Garantir que ID seja numérico
             if 'ID' in df.columns:
                 df['ID'] = pd.to_numeric(df['ID'], errors='coerce')
@@ -86,22 +115,23 @@ def atualizar_status(ws, id_pedido, novo_status):
         # Encontrar a linha do pedido
         celula = ws.find(str(id_pedido), in_column=1)
         if celula:
-            # Colunas baseadas no cabeçalho (mais robusto)
             cabecalho = ws.row_values(1)
             
-            # Encontrar índices das colunas
-            try:
-                col_status = cabecalho.index('Status') + 1
-                col_atualizacao = cabecalho.index('Ultima_Atualizacao') + 1
-            except ValueError:
-                # Fallback para posições fixas
-                col_status = 8  # Agora Status é a coluna 8
-                col_atualizacao = 9  # Ultima_Atualizacao é a coluna 9
+            # Mapear colunas independente do nome
+            col_status = None
+            col_atualizacao = None
             
-            # Atualizar células
-            ws.update_cell(celula.row, col_status, novo_status)
-            ws.update_cell(celula.row, col_atualizacao, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            return True
+            for i, col in enumerate(cabecalho):
+                col_lower = col.lower().strip()
+                if 'status' in col_lower:
+                    col_status = i + 1
+                if 'atualizacao' in col_lower or 'atualização' in col_lower:
+                    col_atualizacao = i + 1
+            
+            if col_status and col_atualizacao:
+                ws.update_cell(celula.row, col_status, novo_status)
+                ws.update_cell(celula.row, col_atualizacao, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                return True
         return False
     except Exception as e:
         st.error(f"❌ Erro ao atualizar status: {str(e)}")
@@ -110,7 +140,6 @@ def atualizar_status(ws, id_pedido, novo_status):
 # Controle de autenticação
 if 'logado' not in st.session_state:
     st.session_state.logado = False
-    st.session_state.pedidos_atualizados = False
 
 # Tela de login
 if not st.session_state.logado:
@@ -172,6 +201,10 @@ with st.sidebar:
     
     st.divider()
     
+    # Mostrar total de pedidos
+    st.markdown("### 📊 Status da busca")
+    st.info(f"**Total na planilha:** {len(df)} pedidos")
+    
     # Botão para recarregar
     if st.button("🔄 Recarregar dados", use_container_width=True):
         st.cache_resource.clear()
@@ -180,18 +213,55 @@ with st.sidebar:
 # Aplicar filtros
 df_filtrado = df.copy()
 
+# Lista para mostrar quais filtros foram aplicados
+filtros_aplicados = []
+
+# Filtro de Status
 if status_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Status'].isin(status_selecionados)]
+    filtros_aplicados.append(f"Status: {', '.join(status_selecionados)}")
 
+# Filtro de Solicitante
 if solicitante_selecionado != 'Todos':
     df_filtrado = df_filtrado[df_filtrado['Solicitante'] == solicitante_selecionado]
+    filtros_aplicados.append(f"Solicitante: {solicitante_selecionado}")
 
-if data_inicio and 'Data' in df_filtrado.columns:
-    df_filtrado['Data'] = pd.to_datetime(df_filtrado['Data'])
-    df_filtrado = df_filtrado[df_filtrado['Data'] >= pd.to_datetime(data_inicio)]
+# Filtro de Data (CORRIGIDO - ignora hora)
+if data_inicio or data_fim:
+    # Converter a coluna Data para apenas data (sem hora)
+    df_filtrado['Data_Somente'] = pd.to_datetime(df_filtrado['Data']).dt.date
+    
+    if data_inicio:
+        df_filtrado = df_filtrado[df_filtrado['Data_Somente'] >= data_inicio]
+        filtros_aplicados.append(f"Data ≥ {data_inicio}")
+    
+    if data_fim:
+        df_filtrado = df_filtrado[df_filtrado['Data_Somente'] <= data_fim]
+        filtros_aplicados.append(f"Data ≤ {data_fim}")
+    
+    # Remover a coluna auxiliar
+    df_filtrado = df_filtrado.drop(columns=['Data_Somente'])
 
-if data_fim and 'Data' in df_filtrado.columns:
-    df_filtrado = df_filtrado[df_filtrado['Data'] <= pd.to_datetime(data_fim)]
+# Mostrar resumo dos filtros na barra lateral
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎯 Filtros aplicados:")
+
+if filtros_aplicados:
+    for filtro in filtros_aplicados:
+        st.sidebar.markdown(f"- {filtro}")
+    st.sidebar.markdown(f"**Resultado:** {len(df_filtrado)} pedido(s)")
+    
+    if len(df_filtrado) == 0 and len(df) > 0:
+        st.sidebar.warning("""
+        ⚠️ **Nenhum pedido encontrado!**
+        
+        **Sugestões:**
+        • Remova alguns filtros
+        • Verifique se o nome do solicitante está correto
+        • Expanda o período de datas
+        """)
+else:
+    st.sidebar.info("📌 Nenhum filtro aplicado - mostrando todos os pedidos")
 
 # Estatísticas
 st.markdown("### 📊 Resumo")
@@ -271,19 +341,19 @@ else:
             with col1:
                 if st.button("⏳ Aguardando", key=f"ag_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Aguardando'):
-                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
+                        st.success(f"✅ Pedido #{row['ID']} atualizado para Aguardando!")
                         st.rerun()
             
             with col2:
                 if st.button("🟡 Comprando", key=f"comp_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Comprando'):
-                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
+                        st.success(f"✅ Pedido #{row['ID']} atualizado para Comprando!")
                         st.rerun()
             
             with col3:
                 if st.button("✅ Entregue", key=f"ent_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Entregue'):
-                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
+                        st.success(f"✅ Pedido #{row['ID']} atualizado para Entregue!")
                         st.rerun()
             
             with col4:
@@ -293,13 +363,12 @@ else:
                         st.rerun()
             
             with col5:
-                # Botão para ver detalhes completos
                 with st.expander(f"📋 Ver detalhes completos", key=f"exp_{row['ID']}"):
                     st.json({
                         "ID": int(row['ID']),
-                        "Data": row['Data'],
+                        "Data": str(row['Data']),
                         "Material": row['Descrição'],
-                        "Quantidade": row['Quantidade'],
+                        "Quantidade": int(row['Quantidade']) if str(row['Quantidade']).isdigit() else row['Quantidade'],
                         "Solicitante": row['Solicitante'],
                         "Local": row['Local'],
                         "Observações": row.get('Observações', '-'),
@@ -309,9 +378,9 @@ else:
             
             st.markdown("---")
     
-    # Informação de quantidade
+    # Informação de quantidade de pedidos
     st.caption(f"📊 Mostrando {len(df_filtrado)} pedido(s) de um total de {len(df)}")
     
-    # Paginação para muitos pedidos
+    # Dica para muitos pedidos
     if len(df_filtrado) > 20:
-        st.info(f"💡 Dica: Use os filtros na barra lateral para refinar a busca e encontrar pedidos específicos mais rapidamente.")
+        st.info("💡 **Dica:** Use os filtros na barra lateral para refinar a busca e encontrar pedidos específicos mais rapidamente.")
