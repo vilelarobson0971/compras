@@ -30,31 +30,67 @@ def carregar_logo():
         st.warning(f"⚠️ Erro ao carregar a logo: {str(e)}")
         return None
 
-# Função para verificar e adicionar coluna Solicitante se necessário
-def verificar_coluna_solicitante(ws):
-    """Verifica se a coluna Solicitante existe, se não existir, adiciona"""
+# Função para corrigir a estrutura da planilha se necessário
+def corrigir_estrutura_planilha(ws):
+    """Verifica e corrige a ordem das colunas da planilha"""
     try:
         cabecalho = ws.row_values(1)
         
-        if 'Solicitante' not in cabecalho:
-            # Encontrar posição para inserir (depois de Local)
-            if 'Local' in cabecalho:
-                posicao_local = cabecalho.index('Local') + 1
-                # Adicionar nova coluna
-                ws.add_cols(1)  # Adiciona uma coluna à direita
-                # Atualizar cabeçalho com a nova coluna
-                cabecalho.insert(posicao_local, 'Solicitante')
-                ws.update('A1:Z1', [cabecalho])
+        # Ordem correta das colunas
+        ordem_correta = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
+        
+        # Verificar se o cabeçalho está na ordem correta
+        if cabecalho != ordem_correta:
+            st.warning("⚠️ Estrutura da planilha detectada fora do padrão. Corrigindo...")
+            
+            # Se tiver as colunas mas invertidas (Solicitante e Local trocados)
+            if 'Solicitante' in cabecalho and 'Local' in cabecalho:
+                # Recriar a planilha com a estrutura correta
+                st.info("🔄 Reorganizando as colunas da planilha...")
                 
-                # Preencher registros existentes com "Não informado"
+                # Obter todos os dados existentes
                 dados = ws.get_all_values()
-                for i in range(2, len(dados) + 1):
-                    ws.update_cell(i, posicao_local + 1, "Não informado")
                 
-                st.info("✅ Coluna 'Solicitante' adicionada à planilha existente!")
+                # Mapear índices das colunas
+                idx_id = cabecalho.index('ID') if 'ID' in cabecalho else 0
+                idx_data = cabecalho.index('Data') if 'Data' in cabecalho else 1
+                idx_desc = cabecalho.index('Descrição') if 'Descrição' in cabecalho else 2
+                idx_qtd = cabecalho.index('Quantidade') if 'Quantidade' in cabecalho else 3
+                idx_solicitante = cabecalho.index('Solicitante') if 'Solicitante' in cabecalho else 4
+                idx_local = cabecalho.index('Local') if 'Local' in cabecalho else 5
+                idx_obs = cabecalho.index('Observações') if 'Observações' in cabecalho else 6
+                idx_status = cabecalho.index('Status') if 'Status' in cabecalho else 7
+                idx_atualizacao = cabecalho.index('Ultima_Atualizacao') if 'Ultima_Atualizacao' in cabecalho else 8
+                
+                # Limpar a planilha atual
+                ws.clear()
+                
+                # Escrever novo cabeçalho na ordem correta
+                ws.append_row(ordem_correta)
+                
+                # Migrar os dados existentes para a nova estrutura
+                for row in dados[1:]:  # Pular cabeçalho antigo
+                    if len(row) > 0:
+                        nova_linha = [
+                            row[idx_id] if idx_id < len(row) else '',
+                            row[idx_data] if idx_data < len(row) else '',
+                            row[idx_desc] if idx_desc < len(row) else '',
+                            row[idx_qtd] if idx_qtd < len(row) else '',
+                            row[idx_solicitante] if idx_solicitante < len(row) else '',
+                            row[idx_local] if idx_local < len(row) else '',
+                            row[idx_obs] if idx_obs < len(row) else '',
+                            row[idx_status] if idx_status < len(row) else '',
+                            row[idx_atualizacao] if idx_atualizacao < len(row) else ''
+                        ]
+                        ws.append_row(nova_linha)
+                
+                st.success("✅ Estrutura da planilha corrigida com sucesso!")
+                return True
+            
         return True
+        
     except Exception as e:
-        st.error(f"Erro ao verificar coluna Solicitante: {str(e)}")
+        st.error(f"Erro ao corrigir estrutura: {str(e)}")
         return False
 
 # Conectar ao Google Sheets
@@ -85,14 +121,14 @@ def conectar_google_sheets():
         
         try:
             worksheet = sheet.worksheet("Pedidos")
-            # Verificar se a coluna Solicitante existe (para planilhas existentes)
-            verificar_coluna_solicitante(worksheet)
+            # Corrigir estrutura da planilha existente
+            corrigir_estrutura_planilha(worksheet)
         except:
-            # Criar nova planilha com a coluna Solicitante
+            # Criar nova planilha com a estrutura correta
             worksheet = sheet.add_worksheet("Pedidos", 1000, 20)
             cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
             worksheet.append_row(cabecalho)
-            st.info("✅ Planilha 'Pedidos' criada com a coluna Solicitante!")
+            st.info("✅ Planilha 'Pedidos' criada com a estrutura correta!")
         
         return worksheet
     
@@ -133,7 +169,7 @@ def obter_proximo_id(ws):
         return None
 
 def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
-    """Salva um novo pedido na planilha"""
+    """Salva um novo pedido na planilha - ordem correta"""
     try:
         if not desc or not local or not solicitante:
             return None
@@ -143,6 +179,8 @@ def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
             return None
         
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Ordem correta: ID, Data, Descrição, Quantidade, Solicitante, Local, Observações, Status, Ultima_Atualizacao
         linha = [
             novo_id,
             agora,
@@ -214,7 +252,6 @@ with st.container():
             local = st.text_input("📍 Local de Utilização *", 
                                   placeholder="Ex: Almoxarifado Central | Obra X | Setor Y")
         with col4:
-            # Espaço reservado para futuros campos
             st.markdown("")
         
         observacoes = st.text_area("📝 Observações", 
@@ -240,6 +277,7 @@ with st.container():
                     if id_pedido:
                         st.success(f"✅ Pedido #{id_pedido} enviado com sucesso por {solicitante}!")
                         st.balloons()
+                        st.rerun()  # Recarregar para mostrar o novo pedido
                     else:
                         st.error("❌ Erro ao enviar pedido. Tente novamente.")
 
@@ -256,12 +294,16 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
             if 'Data' in df.columns:
                 df['Data'] = pd.to_datetime(df['Data']).dt.strftime('%d/%m/%Y %H:%M')
             
-            # Verificar quais colunas existem para exibir
-            colunas_exibir = ['ID', 'Data', 'Descrição', 'Solicitante', 'Status']
-            colunas_disponiveis = [col for col in colunas_exibir if col in df.columns]
+            # Colunas para exibir na ordem correta
+            colunas_para_exibir = ['ID', 'Data', 'Descrição', 'Solicitante', 'Local', 'Status']
+            colunas_existentes = [col for col in colunas_para_exibir if col in df.columns]
+            
+            # Renomear colunas para exibição mais amigável
+            df_exibicao = df[colunas_existentes].copy()
+            df_exibicao.columns = ['ID', 'Data', 'Descrição', 'Solicitante', 'Local', 'Status']
             
             st.dataframe(
-                df[colunas_disponiveis], 
+                df_exibicao, 
                 use_container_width=True,
                 hide_index=True
             )
