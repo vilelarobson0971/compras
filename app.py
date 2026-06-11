@@ -152,11 +152,12 @@ col_logo, col_title = st.columns([1, 5])
 
 with col_logo:
     if logo:
-        st.image(logo, width=120)
+        # Logo ajustada automaticamente ao container
+        st.image(logo, use_container_width=True)
     else:
         # Placeholder caso a logo não seja encontrada
         st.markdown("""
-        <div style="width:120px;height:120px;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+        <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
             <span style="color:white;font-size:48px;">📦</span>
         </div>
         """, unsafe_allow_html=True)
