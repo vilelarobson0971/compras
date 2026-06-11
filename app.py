@@ -17,7 +17,6 @@ st.set_page_config(
 def carregar_logo():
     """Carrega a logo do arquivo local Logo.jpeg"""
     try:
-        # Verifica se o arquivo existe na mesma pasta
         if os.path.exists("Logo.jpeg"):
             img = Image.open("Logo.jpeg")
             return img
@@ -31,19 +30,43 @@ def carregar_logo():
         st.warning(f"⚠️ Erro ao carregar a logo: {str(e)}")
         return None
 
+# Função para verificar e adicionar coluna Solicitante se necessário
+def verificar_coluna_solicitante(ws):
+    """Verifica se a coluna Solicitante existe, se não existir, adiciona"""
+    try:
+        cabecalho = ws.row_values(1)
+        
+        if 'Solicitante' not in cabecalho:
+            # Encontrar posição para inserir (depois de Local)
+            if 'Local' in cabecalho:
+                posicao_local = cabecalho.index('Local') + 1
+                # Adicionar nova coluna
+                ws.add_cols(1)  # Adiciona uma coluna à direita
+                # Atualizar cabeçalho com a nova coluna
+                cabecalho.insert(posicao_local, 'Solicitante')
+                ws.update('A1:Z1', [cabecalho])
+                
+                # Preencher registros existentes com "Não informado"
+                dados = ws.get_all_values()
+                for i in range(2, len(dados) + 1):
+                    ws.update_cell(i, posicao_local + 1, "Não informado")
+                
+                st.info("✅ Coluna 'Solicitante' adicionada à planilha existente!")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao verificar coluna Solicitante: {str(e)}")
+        return False
+
 # Conectar ao Google Sheets
 def conectar_google_sheets():
     try:
-        # Obter os secrets
         segredos = st.secrets["gcp_service_account"]
         
-        # Converter para dicionário se necessário
         if isinstance(segredos, str):
             creds_dict = json.loads(segredos)
         else:
             creds_dict = dict(segredos)
         
-        # Garantir que as quebras de linha estão corretas na chave privada
         if 'private_key' in creds_dict:
             private_key = creds_dict["private_key"]
             if isinstance(private_key, str):
@@ -58,17 +81,18 @@ def conectar_google_sheets():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
         
-        # Nome correto da planilha
         sheet = client.open("Pedido_Compras")
         
-        # Obter ou criar a worksheet "Pedidos"
         try:
             worksheet = sheet.worksheet("Pedidos")
+            # Verificar se a coluna Solicitante existe (para planilhas existentes)
+            verificar_coluna_solicitante(worksheet)
         except:
+            # Criar nova planilha com a coluna Solicitante
             worksheet = sheet.add_worksheet("Pedidos", 1000, 20)
-            cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
+            cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
             worksheet.append_row(cabecalho)
-            st.info("✅ Planilha 'Pedidos' criada automaticamente!")
+            st.info("✅ Planilha 'Pedidos' criada com a coluna Solicitante!")
         
         return worksheet
     
@@ -91,12 +115,11 @@ def obter_proximo_id(ws):
     """Obtém o próximo ID disponível"""
     try:
         dados = ws.get_all_values()
-        if len(dados) <= 1:  # Apenas cabeçalho
+        if len(dados) <= 1:
             return 1
         
-        # Pegar todos os IDs da primeira coluna (ignorando cabeçalho)
         ids = []
-        for row in dados[1:]:  # Pular cabeçalho
+        for row in dados[1:]:
             if row and row[0].isdigit():
                 ids.append(int(row[0]))
         
@@ -109,32 +132,29 @@ def obter_proximo_id(ws):
         st.error(f"Erro ao gerar ID: {str(e)}")
         return None
 
-def salvar_pedido(ws, desc, qtd, local, obs):
+def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
     """Salva um novo pedido na planilha"""
     try:
-        # Validar dados
-        if not desc or not local:
+        if not desc or not local or not solicitante:
             return None
         
-        # Obter próximo ID
         novo_id = obter_proximo_id(ws)
         if novo_id is None:
             return None
         
-        # Criar linha
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         linha = [
             novo_id,
             agora,
             desc.strip(),
             qtd,
+            solicitante.strip(),
             local.strip(),
             obs.strip() if obs else "",
             'Aguardando',
             agora
         ]
         
-        # Salvar
         ws.append_row(linha)
         return novo_id
     
@@ -152,10 +172,8 @@ col_logo, col_title = st.columns([1, 5])
 
 with col_logo:
     if logo:
-        # Logo ajustada automaticamente ao container
         st.image(logo, use_container_width=True)
     else:
-        # Placeholder caso a logo não seja encontrada
         st.markdown("""
         <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
             <span style="color:white;font-size:48px;">📦</span>
@@ -188,8 +206,16 @@ with st.container():
         with col1:
             quantidade = st.number_input("🔢 Quantidade *", min_value=1, value=1, step=1)
         with col2:
+            solicitante = st.text_input("👤 Solicitante *", 
+                                        placeholder="Nome completo ou matrícula")
+        
+        col3, col4 = st.columns(2)
+        with col3:
             local = st.text_input("📍 Local de Utilização *", 
                                   placeholder="Ex: Almoxarifado Central | Obra X | Setor Y")
+        with col4:
+            # Espaço reservado para futuros campos
+            st.markdown("")
         
         observacoes = st.text_area("📝 Observações", 
                                    placeholder="Informações adicionais sobre o pedido (prazo, fornecedor, etc.)...", 
@@ -203,14 +229,16 @@ with st.container():
         if submitted:
             if not descricao:
                 st.error("⚠️ Por favor, preencha a descrição do material")
+            elif not solicitante:
+                st.error("⚠️ Por favor, preencha o nome do solicitante")
             elif not local:
                 st.error("⚠️ Por favor, preencha o local de utilização")
             else:
                 with st.spinner("Enviando pedido..."):
-                    id_pedido = salvar_pedido(ws, descricao, quantidade, local, observacoes)
+                    id_pedido = salvar_pedido(ws, descricao, quantidade, solicitante, local, observacoes)
                     
                     if id_pedido:
-                        st.success(f"✅ Pedido #{id_pedido} enviado com sucesso!")
+                        st.success(f"✅ Pedido #{id_pedido} enviado com sucesso por {solicitante}!")
                         st.balloons()
                     else:
                         st.error("❌ Erro ao enviar pedido. Tente novamente.")
@@ -225,12 +253,15 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
             df = pd.DataFrame(dados)
             df = df.sort_values('ID', ascending=False).head(5)
             
-            # Formatar a data para exibição
             if 'Data' in df.columns:
                 df['Data'] = pd.to_datetime(df['Data']).dt.strftime('%d/%m/%Y %H:%M')
             
+            # Verificar quais colunas existem para exibir
+            colunas_exibir = ['ID', 'Data', 'Descrição', 'Solicitante', 'Status']
+            colunas_disponiveis = [col for col in colunas_exibir if col in df.columns]
+            
             st.dataframe(
-                df[['ID', 'Data', 'Descrição', 'Status']], 
+                df[colunas_disponiveis], 
                 use_container_width=True,
                 hide_index=True
             )
