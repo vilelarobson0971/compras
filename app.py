@@ -18,7 +18,7 @@ st.set_page_config(
 def carregar_logo():
     try:
         # URL da sua logo no GitHub (RAW)
-        url_logo = "https://raw.githubusercontent.com/seu-usuario/seu-repositorio/main/Logo.jpg"
+        url_logo = "https://github.com/vilelarobson0971/compras/blob/main/Logo.jpeg"
         response = requests.get(url_logo)
         img = Image.open(BytesIO(response.content))
         return img
