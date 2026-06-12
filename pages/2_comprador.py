@@ -201,7 +201,7 @@ if not pedidos_lista:
 df = pd.DataFrame(pedidos_lista)
 
 # Verificar se temos IDs únicos
-st.sidebar.write(f"**IDs encontrados:** {sorted(df['ID'].unique())}")
+# st.sidebar.write(f"**IDs encontrados:** {sorted(df['ID'].unique())}")
 
 # Sidebar com filtros
 with st.sidebar:
