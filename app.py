@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 import json
@@ -12,6 +12,28 @@ st.set_page_config(
     page_icon="🛒",
     layout="wide"
 )
+
+# Função para obter data/hora local do Brasil (GMT-3)
+def obter_data_hora_brasil():
+    """Retorna a data e hora atual no fuso horário de Brasília (GMT-3)"""
+    # UTC atual
+    utc_now = datetime.utcnow()
+    # Subtrair 3 horas para GMT-3 (Brasília)
+    brasilia_now = utc_now - timedelta(hours=3)
+    return brasilia_now
+
+# Função para formatar data para exibição
+def formatar_data_br(data_str):
+    """Formata data do formato ISO para DD/MM/YYYY HH:MM"""
+    try:
+        if pd.isna(data_str) or data_str == '':
+            return ''
+        # Converter para datetime
+        dt = pd.to_datetime(data_str)
+        # Formatar para brasileiro
+        return dt.strftime('%d/%m/%Y %H:%M')
+    except:
+        return str(data_str)
 
 # Função para carregar a logo local
 def carregar_logo():
@@ -43,15 +65,11 @@ def corrigir_estrutura_planilha(ws):
         if cabecalho != ordem_correta:
             st.warning("⚠️ Estrutura da planilha detectada fora do padrão. Corrigindo...")
             
-            # Se tiver as colunas mas invertidas (Solicitante e Local trocados)
             if 'Solicitante' in cabecalho and 'Local' in cabecalho:
-                # Recriar a planilha com a estrutura correta
                 st.info("🔄 Reorganizando as colunas da planilha...")
                 
-                # Obter todos os dados existentes
                 dados = ws.get_all_values()
                 
-                # Mapear índices das colunas
                 idx_id = cabecalho.index('ID') if 'ID' in cabecalho else 0
                 idx_data = cabecalho.index('Data') if 'Data' in cabecalho else 1
                 idx_desc = cabecalho.index('Descrição') if 'Descrição' in cabecalho else 2
@@ -62,14 +80,10 @@ def corrigir_estrutura_planilha(ws):
                 idx_status = cabecalho.index('Status') if 'Status' in cabecalho else 7
                 idx_atualizacao = cabecalho.index('Ultima_Atualizacao') if 'Ultima_Atualizacao' in cabecalho else 8
                 
-                # Limpar a planilha atual
                 ws.clear()
-                
-                # Escrever novo cabeçalho na ordem correta
                 ws.append_row(ordem_correta)
                 
-                # Migrar os dados existentes para a nova estrutura
-                for row in dados[1:]:  # Pular cabeçalho antigo
+                for row in dados[1:]:
                     if len(row) > 0:
                         nova_linha = [
                             row[idx_id] if idx_id < len(row) else '',
@@ -121,10 +135,8 @@ def conectar_google_sheets():
         
         try:
             worksheet = sheet.worksheet("Pedidos")
-            # Corrigir estrutura da planilha existente
             corrigir_estrutura_planilha(worksheet)
         except:
-            # Criar nova planilha com a estrutura correta
             worksheet = sheet.add_worksheet("Pedidos", 1000, 20)
             cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
             worksheet.append_row(cabecalho)
@@ -178,19 +190,20 @@ def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
         if novo_id is None:
             return None
         
-        agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Usar data/hora do Brasil (GMT-3)
+        agora_brasil = obter_data_hora_brasil()
+        agora_str = agora_brasil.strftime("%Y-%m-%d %H:%M:%S")
         
-        # Ordem correta: ID, Data, Descrição, Quantidade, Solicitante, Local, Observações, Status, Ultima_Atualizacao
         linha = [
             novo_id,
-            agora,
+            agora_str,
             desc.strip(),
             qtd,
             solicitante.strip(),
             local.strip(),
             obs.strip() if obs else "",
             'Aguardando',
-            agora
+            agora_str
         ]
         
         ws.append_row(linha)
@@ -202,18 +215,16 @@ def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
 
 # ==================== INTERFACE PROFISSIONAL ====================
 
-# Carregar logo
 logo = carregar_logo()
 
-# Layout do cabeçalho com logo e título
 col_logo, col_title = st.columns([1, 5])
 
 with col_logo:
     if logo:
-        st.image(logo, use_container_width=True)
+        st.image(logo, width=120)
     else:
         st.markdown("""
-        <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+        <div style="width:120px;height:120px;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
             <span style="color:white;font-size:48px;">📦</span>
         </div>
         """, unsafe_allow_html=True)
@@ -225,14 +236,12 @@ with col_title:
 
 st.divider()
 
-# Conectar à planilha
 ws = conectar_google_sheets()
 
 if ws is None:
     st.error("Não foi possível conectar à planilha. Verifique suas configurações.")
     st.stop()
 
-# Formulário de pedido com layout aprimorado
 with st.container():
     st.markdown("### 📋 Novo Pedido de Compra")
     
@@ -258,7 +267,6 @@ with st.container():
                                    placeholder="Informações adicionais sobre o pedido (prazo, fornecedor, etc.)...", 
                                    height=80)
         
-        # Botões alinhados
         col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 2])
         with col_btn2:
             submitted = st.form_submit_button("✅ Enviar Pedido", use_container_width=True)
@@ -277,13 +285,12 @@ with st.container():
                     if id_pedido:
                         st.success(f"✅ Pedido #{id_pedido} enviado com sucesso por {solicitante}!")
                         st.balloons()
-                        st.rerun()  # Recarregar para mostrar o novo pedido
+                        st.rerun()
                     else:
                         st.error("❌ Erro ao enviar pedido. Tente novamente.")
 
 st.divider()
 
-# Exibir últimos pedidos com visual aprimorado
 with st.expander("📋 Ver últimos pedidos", expanded=False):
     try:
         dados = ws.get_all_records()
@@ -292,13 +299,12 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
             df = df.sort_values('ID', ascending=False).head(5)
             
             if 'Data' in df.columns:
-                df['Data'] = pd.to_datetime(df['Data']).dt.strftime('%d/%m/%Y %H:%M')
+                # Formatar data para padrão brasileiro
+                df['Data'] = df['Data'].apply(formatar_data_br)
             
-            # Colunas para exibir na ordem correta
             colunas_para_exibir = ['ID', 'Data', 'Descrição', 'Solicitante', 'Local', 'Status']
             colunas_existentes = [col for col in colunas_para_exibir if col in df.columns]
             
-            # Renomear colunas para exibição mais amigável
             df_exibicao = df[colunas_existentes].copy()
             df_exibicao.columns = ['ID', 'Data', 'Descrição', 'Solicitante', 'Local', 'Status']
             
@@ -312,7 +318,6 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
     except Exception as e:
         st.warning(f"Não foi possível carregar os pedidos: {str(e)}")
 
-# Rodapé profissional
 st.divider()
 col_footer1, col_footer2, col_footer3 = st.columns(3)
 with col_footer2:
