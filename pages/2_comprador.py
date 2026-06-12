@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 import json
@@ -10,6 +10,17 @@ SENHA = "brasa@2026"
 
 # Configuração da página
 st.set_page_config(page_title="Gerenciar Pedidos", page_icon="📋", layout="wide")
+
+# Função para formatar data para exibição
+def formatar_data_br(data_str):
+    """Formata data do formato ISO para DD/MM/YYYY HH:MM"""
+    try:
+        if pd.isna(data_str) or data_str == '':
+            return ''
+        dt = pd.to_datetime(data_str)
+        return dt.strftime('%d/%m/%Y %H:%M')
+    except:
+        return str(data_str)
 
 # Função para conectar ao Google Sheets
 def conectar_google_sheets():
@@ -61,15 +72,11 @@ def carregar_pedidos(ws):
         if not todos_dados or len(todos_dados) <= 1:
             return []
         
-        cabecalho = todos_dados[0]
-        
-        # Processar linhas de dados
         pedidos = []
         for linha in todos_dados[1:]:
             if not linha or len(linha) < 3:
                 continue
             
-            # Extrair ID da primeira coluna
             try:
                 id_int = int(float(str(linha[0]).strip())) if linha[0] else 0
             except:
@@ -114,7 +121,6 @@ def atualizar_status(ws, id_pedido, novo_status):
                     break
         
         if linha_encontrada:
-            # Atualizar na coluna 8 (Status) e 9 (Ultima_Atualizacao)
             ws.update_cell(linha_encontrada, 8, novo_status)
             ws.update_cell(linha_encontrada, 9, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             return True
@@ -149,19 +155,16 @@ if not st.session_state.logado:
 # Dashboard principal
 st.title("📋 Gerenciamento de Pedidos")
 
-# Conectar e carregar dados
 ws = conectar_google_sheets()
 if ws is None:
     st.stop()
 
-# Carregar pedidos
 pedidos_lista = carregar_pedidos(ws)
 
 if not pedidos_lista:
     st.info("📭 Nenhum pedido encontrado na planilha.")
     st.stop()
 
-# Converter para DataFrame
 df = pd.DataFrame(pedidos_lista)
 
 # Sidebar com filtros
@@ -226,7 +229,6 @@ if data_inicio or data_fim:
         if 'Data_Somente' in df_filtrado.columns:
             df_filtrado = df_filtrado.drop(columns=['Data_Somente'])
 
-# Mostrar resumo dos filtros
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Filtros aplicados:")
 
@@ -269,7 +271,6 @@ if df_filtrado.empty:
 else:
     df_filtrado = df_filtrado.sort_values('ID', ascending=False)
     
-    # Exibir cada pedido em um card
     for idx, row in df_filtrado.iterrows():
         pedido_id = int(row['ID'])
         
@@ -281,12 +282,9 @@ else:
         }
         cor_fundo = cores.get(row['Status'], '#F5F5F5')
         
-        data_exibicao = row['Data']
-        if pd.notna(data_exibicao):
-            if isinstance(data_exibicao, pd.Timestamp):
-                data_exibicao = data_exibicao.strftime('%d/%m/%Y %H:%M')
+        # Formatar data para exibição
+        data_exibicao = formatar_data_br(row['Data'])
         
-        # Card do pedido
         with st.container():
             st.markdown(f"""
             <div style='
@@ -324,7 +322,6 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-            # Botões de ação com chaves únicas
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
