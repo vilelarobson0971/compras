@@ -35,10 +35,7 @@ def conectar_google_sheets():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
         
-        # Nome correto da planilha
         sheet = client.open("Pedido_Compras")
-        
-        # Retornar a worksheet "Pedidos"
         return sheet.worksheet("Pedidos")
     
     except gspread.SpreadsheetNotFound:
@@ -59,13 +56,11 @@ def conectar_google_sheets():
 def carregar_pedidos_sem_pandas(ws):
     """Carrega pedidos sem usar pandas para evitar erros de conversão"""
     try:
-        # Obter todos os dados
         todos_dados = ws.get_all_values()
         
         if not todos_dados or len(todos_dados) <= 1:
             return []
         
-        # Primeira linha é o cabeçalho
         cabecalho = todos_dados[0]
         
         # Limpar cabeçalho
@@ -110,11 +105,9 @@ def carregar_pedidos_sem_pandas(ws):
         # Processar linhas de dados
         pedidos = []
         for linha in todos_dados[1:]:
-            # Pular linha vazia
             if not linha or all(cell == '' or cell is None for cell in linha):
                 continue
             
-            # Extrair dados usando os índices encontrados
             pedido = {
                 'ID': int(linha[idx_id]) if idx_id is not None and idx_id < len(linha) and linha[idx_id] and str(linha[idx_id]).isdigit() else len(pedidos) + 1,
                 'Data': linha[idx_data] if idx_data is not None and idx_data < len(linha) else '',
@@ -127,7 +120,6 @@ def carregar_pedidos_sem_pandas(ws):
                 'Ultima_Atualizacao': linha[idx_atualizacao] if idx_atualizacao is not None and idx_atualizacao < len(linha) else ''
             }
             
-            # Validar dados mínimos
             if pedido['Descrição'] and pedido['Solicitante']:
                 pedidos.append(pedido)
         
@@ -140,7 +132,6 @@ def carregar_pedidos_sem_pandas(ws):
 def atualizar_status(ws, id_pedido, novo_status):
     """Atualiza o status de um pedido"""
     try:
-        # Procurar a linha do pedido
         todas_linhas = ws.get_all_values()
         
         linha_encontrada = None
@@ -150,7 +141,6 @@ def atualizar_status(ws, id_pedido, novo_status):
                 break
         
         if linha_encontrada:
-            # Encontrar coluna de status
             cabecalho = todas_linhas[0]
             col_status = None
             col_atualizacao = None
@@ -162,13 +152,11 @@ def atualizar_status(ws, id_pedido, novo_status):
                 if 'atualizacao' in col_lower or 'atualização' in col_lower:
                     col_atualizacao = i
             
-            # Se não encontrou, usar padrão
             if not col_status:
                 col_status = 8
             if not col_atualizacao:
                 col_atualizacao = 9
             
-            # Atualizar células
             ws.update_cell(linha_encontrada, col_status, novo_status)
             ws.update_cell(linha_encontrada, col_atualizacao, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             return True
@@ -205,21 +193,20 @@ ws = conectar_google_sheets()
 if ws is None:
     st.stop()
 
-# Carregar pedidos sem usar pandas
+# Carregar pedidos
 pedidos_lista = carregar_pedidos_sem_pandas(ws)
 
 if not pedidos_lista:
     st.info("📭 Nenhum pedido encontrado na planilha.")
     st.stop()
 
-# Converter para DataFrame apenas para exibição (após validar dados)
+# Converter para DataFrame
 df = pd.DataFrame(pedidos_lista)
 
 # Sidebar com filtros
 with st.sidebar:
     st.header("🔍 Filtros")
     
-    # Filtro por status
     status_options = ['Aguardando', 'Comprando', 'Entregue', 'Cancelado']
     status_selecionados = st.multiselect(
         "Status", 
@@ -227,7 +214,6 @@ with st.sidebar:
         default=['Aguardando', 'Comprando']
     )
     
-    # Filtro por solicitante
     solicitantes = ['Todos'] + sorted(df['Solicitante'].unique().tolist())
     solicitante_selecionado = st.selectbox(
         "👤 Solicitante",
@@ -235,7 +221,6 @@ with st.sidebar:
         index=0
     )
     
-    # Filtro por período
     st.subheader("📅 Período")
     col1, col2 = st.columns(2)
     with col1:
@@ -245,38 +230,28 @@ with st.sidebar:
     
     st.divider()
     
-    # Mostrar total de pedidos
     st.markdown("### 📊 Status da busca")
     st.info(f"**Total na planilha:** {len(df)} pedidos")
     
-    # Botão para recarregar
     if st.button("🔄 Recarregar dados", use_container_width=True):
         st.cache_resource.clear()
         st.rerun()
 
 # Aplicar filtros
 df_filtrado = df.copy()
-
-# Lista para mostrar quais filtros foram aplicados
 filtros_aplicados = []
 
-# Filtro de Status
 if status_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Status'].isin(status_selecionados)]
     filtros_aplicados.append(f"Status: {', '.join(status_selecionados)}")
 
-# Filtro de Solicitante
 if solicitante_selecionado != 'Todos':
     df_filtrado = df_filtrado[df_filtrado['Solicitante'] == solicitante_selecionado]
     filtros_aplicados.append(f"Solicitante: {solicitante_selecionado}")
 
-# Filtro de Data (ignora hora)
 if data_inicio or data_fim:
     if 'Data' in df_filtrado.columns:
-        # Converter para datetime
         df_filtrado['Data'] = pd.to_datetime(df_filtrado['Data'], errors='coerce')
-        
-        # Extrair apenas a data
         df_filtrado['Data_Somente'] = df_filtrado['Data'].dt.date
         
         if data_inicio:
@@ -287,11 +262,9 @@ if data_inicio or data_fim:
             df_filtrado = df_filtrado[df_filtrado['Data_Somente'] <= data_fim]
             filtros_aplicados.append(f"Data ≤ {data_fim}")
         
-        # Remover coluna auxiliar se existir
-        if 'Data_Somente' in df_filtrado.columns:
-            df_filtrado = df_filtrado.drop(columns=['Data_Somente'])
+        df_filtrado = df_filtrado.drop(columns=['Data_Somente'])
 
-# Mostrar resumo dos filtros na barra lateral
+# Mostrar resumo dos filtros
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Filtros aplicados:")
 
@@ -332,12 +305,13 @@ st.markdown("### 📦 Lista de Pedidos")
 if df_filtrado.empty:
     st.info("Nenhum pedido encontrado com os filtros selecionados.")
 else:
-    # Ordenar por ID decrescente
     df_filtrado = df_filtrado.sort_values('ID', ascending=False)
     
-    # Exibir cada pedido em um card
+    # Usar um contador para garantir chaves únicas
     for idx, row in df_filtrado.iterrows():
-        # Definir cor baseada no status
+        # Garantir que o ID é único e converter para string
+        pedido_id = str(row['ID']).strip()
+        
         cores = {
             'Aguardando': '#FFF3E0',
             'Comprando': '#FFF9C4',
@@ -346,7 +320,6 @@ else:
         }
         cor_fundo = cores.get(row['Status'], '#F5F5F5')
         
-        # Formatar data para exibição
         data_exibicao = row['Data']
         if pd.notna(data_exibicao):
             if isinstance(data_exibicao, pd.Timestamp):
@@ -364,7 +337,7 @@ else:
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             '>
                 <div style='display: flex; justify-content: space-between; align-items: center;'>
-                    <h3 style='margin: 0;'>📦 Pedido #{int(row['ID'])}</h3>
+                    <h3 style='margin: 0;'>📦 Pedido #{pedido_id}</h3>
                     <span style='
                         background-color: #2196F3;
                         color: white;
@@ -390,35 +363,38 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-            # Botões de ação
+            # Botões de ação com chaves únicas usando ID + timestamp + índice
+            import time
+            unique_suffix = f"{pedido_id}_{idx}_{int(time.time())}"
+            
             col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
-                if st.button("⏳ Aguardando", key=f"ag_{row['ID']}", use_container_width=True):
+                if st.button("⏳ Aguardando", key=f"ag_{unique_suffix}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Aguardando'):
                         st.success(f"✅ Pedido #{row['ID']} atualizado para Aguardando!")
                         st.rerun()
             
             with col2:
-                if st.button("🟡 Comprando", key=f"comp_{row['ID']}", use_container_width=True):
+                if st.button("🟡 Comprando", key=f"comp_{unique_suffix}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Comprando'):
                         st.success(f"✅ Pedido #{row['ID']} atualizado para Comprando!")
                         st.rerun()
             
             with col3:
-                if st.button("✅ Entregue", key=f"ent_{row['ID']}", use_container_width=True):
+                if st.button("✅ Entregue", key=f"ent_{unique_suffix}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Entregue'):
                         st.success(f"✅ Pedido #{row['ID']} atualizado para Entregue!")
                         st.rerun()
             
             with col4:
-                if st.button("❌ Cancelado", key=f"can_{row['ID']}", use_container_width=True):
+                if st.button("❌ Cancelado", key=f"can_{unique_suffix}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Cancelado'):
                         st.warning(f"⚠️ Pedido #{row['ID']} cancelado")
                         st.rerun()
             
             with col5:
-                with st.expander(f"📋 Ver detalhes completos", key=f"exp_{row['ID']}"):
+                with st.expander(f"📋 Ver detalhes completos", key=f"exp_{unique_suffix}"):
                     st.json({
                         "ID": int(row['ID']),
                         "Data": str(row['Data']),
@@ -433,9 +409,7 @@ else:
             
             st.markdown("---")
     
-    # Informação de quantidade de pedidos
     st.caption(f"📊 Mostrando {len(df_filtrado)} pedido(s) de um total de {len(df)}")
     
-    # Dica para muitos pedidos
     if len(df_filtrado) > 20:
         st.info("💡 **Dica:** Use os filtros na barra lateral para refinar a busca e encontrar pedidos específicos mais rapidamente.")
