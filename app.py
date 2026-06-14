@@ -8,8 +8,6 @@ from googleapiclient.http import MediaFileUpload
 import json
 from PIL import Image
 import os
-import io
-import base64
 
 st.set_page_config(
     page_title="Sistema de Pedidos - Infralink", 
@@ -17,10 +15,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Configuração do Drive
-# ⚠️ COLOQUE O ID DA SUA PASTA AQUI ⚠️
-# Exemplo: PASTA_DRIVE_ID = "1ABC123xyz789DEF456"
-PASTA_DRIVE_ID = "1LjLATf8vQvWZjvZqQDfyGALXq1ck2VC5j"  # ← SUBSTITUA PELO SEU ID
+# Configuração do Drive - COLOQUE O ID DA SUA PASTA AQUI
+PASTA_DRIVE_ID = "1LjLATf8vQvWZjvZqQDfyGALXq1ck2VC5j"
 
 # Função para obter data/hora local do Brasil (GMT-3)
 def obter_data_hora_brasil():
@@ -68,74 +64,100 @@ def conectar_google_drive():
                 private_key = private_key.replace('\\n', '\n')
                 creds_dict["private_key"] = private_key
         
-        scope = [
-            'https://www.googleapis.com/auth/drive.file',
-            'https://www.googleapis.com/auth/drive'
-        ]
+        scope = ['https://www.googleapis.com/auth/drive.file']
         
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         service = build('drive', 'v3', credentials=creds)
         return service
     except Exception as e:
-        st.error(f"❌ Erro ao conectar ao Google Drive: {str(e)}")
+        st.warning(f"⚠️ Drive não conectado: {str(e)}")
         return None
 
 # Função para fazer upload da imagem para o Google Drive
 def upload_imagem_drive(service, imagem_bytes, nome_arquivo, pasta_id):
-    """Faz upload da imagem para o Google Drive e retorna o link"""
     try:
-        # Verificar se a pasta ID foi configurada
         if not pasta_id or pasta_id == "SEU_ID_DA_PASTA_AQUI":
-            st.warning("⚠️ Pasta do Drive não configurada. A foto não será salva.")
             return None
         
-        # Salvar temporariamente
         temp_path = f"/tmp/{nome_arquivo}"
         with open(temp_path, "wb") as f:
             f.write(imagem_bytes)
         
-        # Configurar metadata
         file_metadata = {
             'name': nome_arquivo,
             'parents': [pasta_id]
         }
         
-        # Fazer upload
         media = MediaFileUpload(temp_path, mimetype='image/jpeg', resumable=True)
-        file = service.files().create(body=file_metadata, media_body=media, fields='id,webViewLink').execute()
+        file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         
-        # Tornar o arquivo público
-        try:
-            service.permissions().create(
-                fileId=file['id'],
-                body={'type': 'anyone', 'role': 'reader'}
-            ).execute()
-        except:
-            pass
+        # Tornar público
+        service.permissions().create(
+            fileId=file['id'],
+            body={'type': 'anyone', 'role': 'reader'}
+        ).execute()
         
-        # Limpar arquivo temporário
         os.remove(temp_path)
-        
-        # Retornar link de visualização direta
         return f"https://drive.google.com/uc?id={file['id']}"
     except Exception as e:
-        st.error(f"❌ Erro ao fazer upload da imagem: {str(e)}")
+        st.warning(f"⚠️ Erro no upload da foto: {str(e)}")
         return None
 
-# Função para corrigir a estrutura da planilha se necessário
+# Função para corrigir a estrutura da planilha
 def corrigir_estrutura_planilha(ws):
     try:
         cabecalho = ws.row_values(1)
         ordem_correta = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Foto_Link', 'Status', 'Ultima_Atualizacao']
         
         if cabecalho != ordem_correta:
-            # Se faltar a coluna de foto, adicionar
-            if 'Foto_Link' not in cabecalho:
-                st.info("📸 Adicionando coluna de foto à planilha...")
-                ws.add_cols(1)
-                ws.update_cell(1, 8, 'Foto_Link')
-                st.success("✅ Coluna 'Foto_Link' adicionada!")
+            st.info("🔄 Corrigindo estrutura da planilha...")
             
+            # Obter todos os dados
+            dados = ws.get_all_values()
+            
+            # Mapear índices atuais
+            idx_id = cabecalho.index('ID') if 'ID' in cabecalho else 0
+            idx_data = cabecalho.index('Data') if 'Data' in cabecalho else 1
+            idx_desc = cabecalho.index('Descrição') if 'Descrição' in cabecalho else 2
+            idx_qtd = cabecalho.index('Quantidade') if 'Quantidade' in cabecalho else 3
+            idx_solicitante = cabecalho.index('Solicitante') if 'Solicitante' in cabecalho else 4
+            idx_local = cabecalho.index('Local') if 'Local' in cabecalho else 5
+            idx_obs = cabecalho.index('Observações') if 'Observações' in cabecalho else 6
+            
+            # Verificar onde está o Status
+            if 'Status' in cabecalho:
+                idx_status = cabecalho.index('Status')
+            elif 'Aguardando' in dados[1] if len(dados) > 1 else False:
+                # Status pode estar na coluna 8
+                idx_status = 7
+            else:
+                idx_status = 8
+            
+            # Limpar planilha
+            ws.clear()
+            
+            # Escrever novo cabeçalho
+            ws.append_row(ordem_correta)
+            
+            # Migrar dados
+            for row in dados[1:]:
+                if len(row) > 0:
+                    nova_linha = [
+                        row[idx_id] if idx_id < len(row) else '',
+                        row[idx_data] if idx_data < len(row) else '',
+                        row[idx_desc] if idx_desc < len(row) else '',
+                        row[idx_qtd] if idx_qtd < len(row) else '',
+                        row[idx_solicitante] if idx_solicitante < len(row) else '',
+                        row[idx_local] if idx_local < len(row) else '',
+                        row[idx_obs] if idx_obs < len(row) else '',
+                        '',  # Foto_Link (vazio)
+                        row[idx_status] if idx_status < len(row) else 'Aguardando',
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    ]
+                    ws.append_row(nova_linha)
+            
+            st.success("✅ Estrutura corrigida!")
+        
         return True
     except Exception as e:
         st.error(f"Erro ao corrigir estrutura: {str(e)}")
@@ -174,21 +196,9 @@ def conectar_google_sheets():
             worksheet = sheet.add_worksheet("Pedidos", 1000, 20)
             cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Foto_Link', 'Status', 'Ultima_Atualizacao']
             worksheet.append_row(cabecalho)
-            st.info("✅ Planilha 'Pedidos' criada com suporte a fotos!")
+            st.info("✅ Planilha criada!")
         
         return worksheet
-    
-    except gspread.SpreadsheetNotFound:
-        st.error("""
-        ❌ Planilha 'Pedido_Compras' não encontrada!
-        
-        Verifique se:
-        1. O nome exato da planilha é 'Pedido_Compras'
-        2. Ela foi compartilhada com o email: bot-planilha@infralinkcompras.iam.gserviceaccount.com
-        3. A permissão é de 'Editor'
-        """)
-        return None
-    
     except Exception as e:
         st.error(f"❌ Erro ao conectar: {str(e)}")
         return None
@@ -198,32 +208,21 @@ def obter_proximo_id(ws):
         dados = ws.get_all_values()
         if len(dados) <= 1:
             return 1
-        
         ids = []
         for row in dados[1:]:
-            if row and row[0].isdigit():
+            if row and row[0] and str(row[0]).isdigit():
                 ids.append(int(row[0]))
-        
-        if not ids:
-            return 1
-        
-        return max(ids) + 1
-    except Exception as e:
-        st.error(f"Erro ao gerar ID: {str(e)}")
-        return None
+        return max(ids) + 1 if ids else 1
+    except:
+        return 1
 
 def salvar_pedido(ws, desc, qtd, solicitante, local, obs, foto_link=None):
     try:
-        if not desc or not local or not solicitante:
-            return None
-        
         novo_id = obter_proximo_id(ws)
-        if novo_id is None:
-            return None
-        
         agora_brasil = obter_data_hora_brasil()
         agora_str = agora_brasil.strftime("%Y-%m-%d %H:%M:%S")
         
+        # Ordem correta das colunas
         linha = [
             novo_id,
             agora_str,
@@ -240,10 +239,10 @@ def salvar_pedido(ws, desc, qtd, solicitante, local, obs, foto_link=None):
         ws.append_row(linha)
         return novo_id
     except Exception as e:
-        st.error(f"❌ Erro ao salvar pedido: {str(e)}")
+        st.error(f"❌ Erro ao salvar: {str(e)}")
         return None
 
-# ==================== INTERFACE PROFISSIONAL ====================
+# ==================== INTERFACE ====================
 
 logo = carregar_logo()
 
@@ -251,13 +250,9 @@ col_logo, col_title = st.columns([1, 5])
 
 with col_logo:
     if logo:
-        st.image(logo, width=120)
+        st.image(logo, width=100)
     else:
-        st.markdown("""
-        <div style="width:120px;height:120px;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-            <span style="color:white;font-size:48px;">📦</span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("📦")
 
 with col_title:
     st.title("📝 Pedidos de Compra")
@@ -267,90 +262,54 @@ with col_title:
 st.divider()
 
 ws = conectar_google_sheets()
-
 if ws is None:
-    st.error("Não foi possível conectar à planilha. Verifique suas configurações.")
     st.stop()
 
-# Conectar ao Drive para upload de fotos
 drive_service = conectar_google_drive()
 
 with st.container():
     st.markdown("### 📋 Novo Pedido de Compra")
     
     with st.form("form_pedido", clear_on_submit=True):
-        descricao = st.text_area("📦 Descrição do Material *", height=100, 
-                                 placeholder="Ex: Parafuso sextavado 5/16 x 1\" - Aço carbono")
+        descricao = st.text_area("📦 Descrição do Material *", height=80)
         
         col1, col2 = st.columns(2)
         with col1:
-            quantidade = st.number_input("🔢 Quantidade *", min_value=1, value=1, step=1)
+            quantidade = st.number_input("🔢 Quantidade *", min_value=1, value=1)
         with col2:
-            solicitante = st.text_input("👤 Solicitante *", 
-                                        placeholder="Nome completo ou matrícula")
+            solicitante = st.text_input("👤 Solicitante *")
         
-        col3, col4 = st.columns(2)
-        with col3:
-            local = st.text_input("📍 Local de Utilização *", 
-                                  placeholder="Ex: Almoxarifado Central | Obra X | Setor Y")
-        with col4:
-            st.markdown("")
+        local = st.text_input("📍 Local de Utilização *")
+        observacoes = st.text_area("📝 Observações", height=60)
         
-        observacoes = st.text_area("📝 Observações", 
-                                   placeholder="Informações adicionais sobre o pedido...", 
-                                   height=80)
-        
-        # Upload de foto (OPCIONAL)
         st.markdown("---")
         st.markdown("### 📸 Foto do Item (Opcional)")
-        st.caption("Tire uma foto ou selecione da galeria para ajudar o comprador a identificar o item")
         
-        foto_upload = st.file_uploader(
-            "Clique para adicionar uma foto", 
-            type=['jpg', 'jpeg', 'png', 'gif'],
-            help="Formatos aceitos: JPG, PNG, GIF. Tamanho máximo: 5MB"
-        )
+        foto_upload = st.file_uploader("Clique para adicionar uma foto", type=['jpg', 'jpeg', 'png'])
         
         if foto_upload:
-            foto_preview = Image.open(foto_upload)
-            st.image(foto_preview, caption="Pré-visualização da foto", width=200)
+            st.image(Image.open(foto_upload), caption="Pré-visualização", width=150)
         
         st.markdown("---")
         
-        col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 2])
-        with col_btn2:
-            submitted = st.form_submit_button("✅ Enviar Pedido", use_container_width=True)
-        
-        if submitted:
-            if not descricao:
-                st.error("⚠️ Por favor, preencha a descrição do material")
-            elif not solicitante:
-                st.error("⚠️ Por favor, preencha o nome do solicitante")
-            elif not local:
-                st.error("⚠️ Por favor, preencha o local de utilização")
+        if st.form_submit_button("✅ Enviar Pedido", use_container_width=True):
+            if not descricao or not solicitante or not local:
+                st.error("⚠️ Preencha os campos obrigatórios")
             else:
-                with st.spinner("Enviando pedido..."):
+                with st.spinner("Enviando..."):
                     foto_link = None
-                    
                     if foto_upload and drive_service:
                         nome_arquivo = f"pedido_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                        foto_bytes = foto_upload.getvalue()
-                        foto_link = upload_imagem_drive(drive_service, foto_bytes, nome_arquivo, PASTA_DRIVE_ID)
+                        foto_link = upload_imagem_drive(drive_service, foto_upload.getvalue(), nome_arquivo, PASTA_DRIVE_ID)
                         if foto_link:
-                            st.success("📸 Foto anexada com sucesso!")
-                        else:
-                            st.warning("⚠️ Não foi possível anexar a foto, mas o pedido será enviado")
+                            st.success("📸 Foto anexada!")
                     
                     id_pedido = salvar_pedido(ws, descricao, quantidade, solicitante, local, observacoes, foto_link)
                     
                     if id_pedido:
-                        st.success(f"✅ Pedido #{id_pedido} enviado com sucesso por {solicitante}!")
-                        if foto_link:
-                            st.info("📸 A foto foi anexada ao pedido e estará disponível para o comprador")
+                        st.success(f"✅ Pedido #{id_pedido} enviado!")
                         st.balloons()
                         st.rerun()
-                    else:
-                        st.error("❌ Erro ao enviar pedido. Tente novamente.")
 
 st.divider()
 
@@ -358,35 +317,14 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
     try:
         dados = ws.get_all_values()
         if dados and len(dados) > 1:
-            # Criar DataFrame manualmente
-            cabecalho = dados[0]
-            registros = dados[1:]
-            
-            # Limitar aos últimos 5
-            registros = registros[:5]
-            
-            # Exibir em tabela simples
-            for registro in registros:
+            for registro in dados[1:6]:  # Últimos 5
                 if len(registro) >= 6:
-                    cols = st.columns([1, 2, 3, 2, 1])
-                    with cols[0]:
-                        st.write(f"#{registro[0]}")
-                    with cols[1]:
-                        data_fmt = formatar_data_br(registro[1]) if len(registro) > 1 else '-'
-                        st.write(data_fmt)
-                    with cols[2]:
-                        st.write(registro[2] if len(registro) > 2 else '-')
-                    with cols[3]:
-                        st.write(registro[4] if len(registro) > 4 else '-')
-                    with cols[4]:
-                        st.write(registro[8] if len(registro) > 8 else '-')
+                    st.write(f"**#{registro[0]}** - {registro[2]} - {registro[4]} - {registro[8] if len(registro) > 8 else 'Aguardando'}")
                     st.divider()
         else:
             st.info("Nenhum pedido encontrado")
     except Exception as e:
-        st.warning(f"Não foi possível carregar os pedidos: {str(e)}")
+        st.warning(f"Erro: {str(e)}")
 
 st.divider()
-col_footer1, col_footer2, col_footer3 = st.columns(3)
-with col_footer2:
-    st.caption(f"© {datetime.now().year} - By Robson Vilela")
+st.caption(f"© {datetime.now().year} - By Robson Vilela")
