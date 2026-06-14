@@ -12,6 +12,15 @@ SENHA = "brasa@2026"
 
 st.set_page_config(page_title="Gerenciar Pedidos", page_icon="📋", layout="wide")
 
+# ========== ESCONDER MENU PADRÃO ==========
+st.markdown("""
+<style>
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ========== MENU PERSONALIZADO ==========
 with st.sidebar:
     st.markdown("### 📋 Menu Principal")
