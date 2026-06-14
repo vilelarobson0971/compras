@@ -4,7 +4,7 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 import json
-import requests
+import base64
 from PIL import Image
 from io import BytesIO
 
@@ -21,14 +21,18 @@ def formatar_data_br(data_str):
     except:
         return str(data_str)
 
-def carregar_imagem_url(url):
+def base64_para_imagem(base64_str):
+    """Converte string Base64 para imagem"""
     try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            return Image.open(BytesIO(response.content))
-    except:
-        pass
-    return None
+        if not base64_str or base64_str == '':
+            return None
+        # Remover o prefixo se existir
+        if ',' in base64_str:
+            base64_str = base64_str.split(',')[1]
+        image_bytes = base64.b64decode(base64_str)
+        return Image.open(BytesIO(image_bytes))
+    except Exception as e:
+        return None
 
 def conectar_google_sheets():
     try:
@@ -61,20 +65,21 @@ def carregar_pedidos(ws):
         
         pedidos = []
         for linha in dados[1:]:
-            if len(linha) >= 3:
+            if len(linha) >= 3 and linha[0] and str(linha[0]).isdigit():
                 pedidos.append({
-                    'ID': int(linha[0]) if linha[0] and str(linha[0]).isdigit() else 0,
+                    'ID': int(linha[0]),
                     'Data': linha[1] if len(linha) > 1 else '',
                     'Descrição': linha[2] if len(linha) > 2 else '',
                     'Quantidade': linha[3] if len(linha) > 3 else '1',
                     'Solicitante': linha[4] if len(linha) > 4 else '',
                     'Local': linha[5] if len(linha) > 5 else '',
                     'Observações': linha[6] if len(linha) > 6 else '',
-                    'Foto_Link': linha[7] if len(linha) > 7 else '',
+                    'Foto_Base64': linha[7] if len(linha) > 7 else '',
                     'Status': linha[8] if len(linha) > 8 else 'Aguardando',
                 })
-        return [p for p in pedidos if p['ID'] > 0]
+        return pedidos
     except Exception as e:
+        st.error(f"Erro ao carregar: {str(e)}")
         return []
 
 def atualizar_status(ws, id_pedido, novo_status):
@@ -124,7 +129,10 @@ with st.sidebar:
     status_filtro = st.multiselect("Status", ['Aguardando', 'Comprando', 'Entregue', 'Cancelado'], default=['Aguardando', 'Comprando'])
     solicitante_filtro = st.selectbox("Solicitante", ['Todos'] + sorted(df['Solicitante'].unique().tolist()))
     
-    if st.button("Recarregar"):
+    # Filtro para pedidos com foto
+    apenas_com_foto = st.checkbox("📸 Apenas pedidos com foto")
+    
+    if st.button("🔄 Recarregar"):
         st.rerun()
 
 # Aplicar filtros
@@ -133,10 +141,12 @@ if status_filtro:
     df_filtrado = df_filtrado[df_filtrado['Status'].isin(status_filtro)]
 if solicitante_filtro != 'Todos':
     df_filtrado = df_filtrado[df_filtrado['Solicitante'] == solicitante_filtro]
+if apenas_com_foto:
+    df_filtrado = df_filtrado[df_filtrado['Foto_Base64'].notna() & (df_filtrado['Foto_Base64'] != '')]
 
 # Estatísticas
 st.markdown("### 📊 Resumo")
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 with col1:
     st.metric("Total", len(df_filtrado))
 with col2:
@@ -147,50 +157,80 @@ with col4:
     st.metric("Entregues", len(df_filtrado[df_filtrado['Status'] == 'Entregue']))
 with col5:
     st.metric("Cancelados", len(df_filtrado[df_filtrado['Status'] == 'Cancelado']))
+with col6:
+    st.metric("📸 Com Foto", len(df_filtrado[df_filtrado['Foto_Base64'].notna() & (df_filtrado['Foto_Base64'] != '')]))
 
 # Lista de pedidos
 st.markdown("### 📦 Lista de Pedidos")
 
-for _, row in df_filtrado.sort_values('ID', ascending=False).iterrows():
-    with st.container():
-        st.markdown(f"""
-        <div style='background-color: #FFF3E0; padding: 15px; border-radius: 10px; margin: 10px 0; border-left: 5px solid #2196F3;'>
-            <h3>📦 Pedido #{row['ID']} - {row['Status']}</h3>
-            <p><strong>📝 Material:</strong> {row['Descrição']}</p>
-            <p><strong>🔢 Quantidade:</strong> {row['Quantidade']}</p>
-            <p><strong>👤 Solicitante:</strong> {row['Solicitante']}</p>
-            <p><strong>📍 Local:</strong> {row['Local']}</p>
-            <p><strong>📅 Data:</strong> {formatar_data_br(row['Data'])}</p>
-            <p><strong>📝 Observações:</strong> {row['Observações'] if row['Observações'] else '-'}</p>
-        </div>
-        """, unsafe_allow_html=True)
+if df_filtrado.empty:
+    st.info("Nenhum pedido encontrado com os filtros selecionados.")
+else:
+    for _, row in df_filtrado.sort_values('ID', ascending=False).iterrows():
+        # Cor de fundo baseada no status
+        cores = {
+            'Aguardando': '#FFF3E0',
+            'Comprando': '#FFF9C4',
+            'Entregue': '#C8E6C9',
+            'Cancelado': '#FFCDD2'
+        }
+        cor_fundo = cores.get(row['Status'], '#F5F5F5')
         
-        # Exibir foto se houver
-        if row['Foto_Link'] and row['Foto_Link'] != '':
-            st.markdown("**📸 Foto do item:**")
-            img = carregar_imagem_url(row['Foto_Link'])
-            if img:
-                st.image(img, width=200)
-            else:
-                st.markdown(f"[Clique aqui para ver a foto]({row['Foto_Link']})")
-        
-        # Botões
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            if st.button("⏳ Aguardando", key=f"ag_{row['ID']}"):
-                if atualizar_status(ws, row['ID'], 'Aguardando'):
-                    st.rerun()
-        with col2:
-            if st.button("🟡 Comprando", key=f"comp_{row['ID']}"):
-                if atualizar_status(ws, row['ID'], 'Comprando'):
-                    st.rerun()
-        with col3:
-            if st.button("✅ Entregue", key=f"ent_{row['ID']}"):
-                if atualizar_status(ws, row['ID'], 'Entregue'):
-                    st.rerun()
-        with col4:
-            if st.button("❌ Cancelado", key=f"can_{row['ID']}"):
-                if atualizar_status(ws, row['ID'], 'Cancelado'):
-                    st.rerun()
-        
-        st.divider()
+        with st.container():
+            st.markdown(f"""
+            <div style='background-color: {cor_fundo}; padding: 15px; border-radius: 10px; margin: 10px 0; border-left: 5px solid #2196F3;'>
+                <div style='display: flex; justify-content: space-between; align-items: center;'>
+                    <h3 style='margin: 0;'>📦 Pedido #{row['ID']}</h3>
+                    <span style='background-color: #2196F3; color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px;'>{row['Status']}</span>
+                </div>
+                <hr>
+                <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>
+                    <div>
+                        <p><strong>📝 Material:</strong> {row['Descrição']}</p>
+                        <p><strong>🔢 Quantidade:</strong> {row['Quantidade']}</p>
+                        <p><strong>👤 Solicitante:</strong> {row['Solicitante']}</p>
+                        <p><strong>📍 Local:</strong> {row['Local']}</p>
+                    </div>
+                    <div>
+                        <p><strong>📅 Data:</strong> {formatar_data_br(row['Data'])}</p>
+                        <p><strong>📝 Observações:</strong> {row['Observações'] if row['Observações'] else '-'}</p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Exibir foto se houver
+            if row['Foto_Base64'] and row['Foto_Base64'] != '':
+                st.markdown("**📸 Foto do item:**")
+                img = base64_para_imagem(row['Foto_Base64'])
+                if img:
+                    st.image(img, use_container_width=False, width=250)
+                else:
+                    st.warning("Não foi possível carregar a imagem")
+            
+            # Botões de ação
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                if st.button("⏳ Aguardando", key=f"ag_{row['ID']}", use_container_width=True):
+                    if atualizar_status(ws, row['ID'], 'Aguardando'):
+                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
+                        st.rerun()
+            with col2:
+                if st.button("🟡 Comprando", key=f"comp_{row['ID']}", use_container_width=True):
+                    if atualizar_status(ws, row['ID'], 'Comprando'):
+                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
+                        st.rerun()
+            with col3:
+                if st.button("✅ Entregue", key=f"ent_{row['ID']}", use_container_width=True):
+                    if atualizar_status(ws, row['ID'], 'Entregue'):
+                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
+                        st.rerun()
+            with col4:
+                if st.button("❌ Cancelado", key=f"can_{row['ID']}", use_container_width=True):
+                    if atualizar_status(ws, row['ID'], 'Cancelado'):
+                        st.warning(f"⚠️ Pedido #{row['ID']} cancelado")
+                        st.rerun()
+            
+            st.divider()
+    
+    st.caption(f"📊 Mostrando {len(df_filtrado)} pedido(s) de um total de {len(df)}")
