@@ -3,9 +3,13 @@ import pandas as pd
 from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 import json
 from PIL import Image
 import os
+import io
+import base64
 
 st.set_page_config(
     page_title="Sistema de Pedidos - Infralink", 
@@ -13,31 +17,27 @@ st.set_page_config(
     layout="wide"
 )
 
+# Configuração do Drive
+PASTA_DRIVE_ID = "SEU_ID_DA_PASTA_AQUI"  # Você precisa criar uma pasta no Google Drive e colocar o ID aqui
+
 # Função para obter data/hora local do Brasil (GMT-3)
 def obter_data_hora_brasil():
-    """Retorna a data e hora atual no fuso horário de Brasília (GMT-3)"""
-    # UTC atual
     utc_now = datetime.utcnow()
-    # Subtrair 3 horas para GMT-3 (Brasília)
     brasilia_now = utc_now - timedelta(hours=3)
     return brasilia_now
 
 # Função para formatar data para exibição
 def formatar_data_br(data_str):
-    """Formata data do formato ISO para DD/MM/YYYY HH:MM"""
     try:
         if pd.isna(data_str) or data_str == '':
             return ''
-        # Converter para datetime
         dt = pd.to_datetime(data_str)
-        # Formatar para brasileiro
         return dt.strftime('%d/%m/%Y %H:%M')
     except:
         return str(data_str)
 
 # Função para carregar a logo local
 def carregar_logo():
-    """Carrega a logo do arquivo local Logo.jpeg"""
     try:
         if os.path.exists("Logo.jpeg"):
             img = Image.open("Logo.jpeg")
@@ -46,63 +46,88 @@ def carregar_logo():
             img = Image.open("Logo.jpg")
             return img
         else:
-            st.warning("⚠️ Arquivo Logo.jpeg não encontrado na pasta do projeto")
             return None
     except Exception as e:
-        st.warning(f"⚠️ Erro ao carregar a logo: {str(e)}")
+        return None
+
+# Conectar ao Google Drive
+def conectar_google_drive():
+    try:
+        segredos = st.secrets["gcp_service_account"]
+        
+        if isinstance(segredos, str):
+            creds_dict = json.loads(segredos)
+        else:
+            creds_dict = dict(segredos)
+        
+        if 'private_key' in creds_dict:
+            private_key = creds_dict["private_key"]
+            if isinstance(private_key, str):
+                private_key = private_key.replace('\\n', '\n')
+                creds_dict["private_key"] = private_key
+        
+        scope = [
+            'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        service = build('drive', 'v3', credentials=creds)
+        return service
+    except Exception as e:
+        st.error(f"❌ Erro ao conectar ao Google Drive: {str(e)}")
+        return None
+
+# Função para fazer upload da imagem para o Google Drive
+def upload_imagem_drive(service, imagem_bytes, nome_arquivo, pasta_id):
+    """Faz upload da imagem para o Google Drive e retorna o link"""
+    try:
+        # Salvar temporariamente
+        temp_path = f"/tmp/{nome_arquivo}"
+        with open(temp_path, "wb") as f:
+            f.write(imagem_bytes)
+        
+        # Configurar metadata
+        file_metadata = {
+            'name': nome_arquivo,
+            'parents': [pasta_id]
+        }
+        
+        # Fazer upload
+        media = MediaFileUpload(temp_path, mimetype='image/jpeg', resumable=True)
+        file = service.files().create(body=file_metadata, media_body=media, fields='id,webViewLink').execute()
+        
+        # Tornar o arquivo público (opcional)
+        service.permissions().create(
+            fileId=file['id'],
+            body={'type': 'anyone', 'role': 'reader'}
+        ).execute()
+        
+        # Limpar arquivo temporário
+        os.remove(temp_path)
+        
+        # Retornar link de visualização
+        return f"https://drive.google.com/uc?id={file['id']}"
+    except Exception as e:
+        st.error(f"❌ Erro ao fazer upload da imagem: {str(e)}")
         return None
 
 # Função para corrigir a estrutura da planilha se necessário
 def corrigir_estrutura_planilha(ws):
-    """Verifica e corrige a ordem das colunas da planilha"""
     try:
         cabecalho = ws.row_values(1)
+        ordem_correta = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Foto_Link', 'Status', 'Ultima_Atualizacao']
         
-        # Ordem correta das colunas
-        ordem_correta = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
-        
-        # Verificar se o cabeçalho está na ordem correta
         if cabecalho != ordem_correta:
-            st.warning("⚠️ Estrutura da planilha detectada fora do padrão. Corrigindo...")
+            st.warning("⚠️ Atualizando estrutura da planilha para incluir fotos...")
             
-            if 'Solicitante' in cabecalho and 'Local' in cabecalho:
-                st.info("🔄 Reorganizando as colunas da planilha...")
-                
-                dados = ws.get_all_values()
-                
-                idx_id = cabecalho.index('ID') if 'ID' in cabecalho else 0
-                idx_data = cabecalho.index('Data') if 'Data' in cabecalho else 1
-                idx_desc = cabecalho.index('Descrição') if 'Descrição' in cabecalho else 2
-                idx_qtd = cabecalho.index('Quantidade') if 'Quantidade' in cabecalho else 3
-                idx_solicitante = cabecalho.index('Solicitante') if 'Solicitante' in cabecalho else 4
-                idx_local = cabecalho.index('Local') if 'Local' in cabecalho else 5
-                idx_obs = cabecalho.index('Observações') if 'Observações' in cabecalho else 6
-                idx_status = cabecalho.index('Status') if 'Status' in cabecalho else 7
-                idx_atualizacao = cabecalho.index('Ultima_Atualizacao') if 'Ultima_Atualizacao' in cabecalho else 8
-                
-                ws.clear()
-                ws.append_row(ordem_correta)
-                
-                for row in dados[1:]:
-                    if len(row) > 0:
-                        nova_linha = [
-                            row[idx_id] if idx_id < len(row) else '',
-                            row[idx_data] if idx_data < len(row) else '',
-                            row[idx_desc] if idx_desc < len(row) else '',
-                            row[idx_qtd] if idx_qtd < len(row) else '',
-                            row[idx_solicitante] if idx_solicitante < len(row) else '',
-                            row[idx_local] if idx_local < len(row) else '',
-                            row[idx_obs] if idx_obs < len(row) else '',
-                            row[idx_status] if idx_status < len(row) else '',
-                            row[idx_atualizacao] if idx_atualizacao < len(row) else ''
-                        ]
-                        ws.append_row(nova_linha)
-                
-                st.success("✅ Estrutura da planilha corrigida com sucesso!")
-                return True
+            if len(cabecalho) < 9:
+                # Adicionar coluna de foto
+                ws.add_cols(1)
+                ws.update_cell(1, 9, 'Foto_Link')
+                st.success("✅ Coluna 'Foto_Link' adicionada!")
             
         return True
-        
     except Exception as e:
         st.error(f"Erro ao corrigir estrutura: {str(e)}")
         return False
@@ -138,9 +163,9 @@ def conectar_google_sheets():
             corrigir_estrutura_planilha(worksheet)
         except:
             worksheet = sheet.add_worksheet("Pedidos", 1000, 20)
-            cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Status', 'Ultima_Atualizacao']
+            cabecalho = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Foto_Link', 'Status', 'Ultima_Atualizacao']
             worksheet.append_row(cabecalho)
-            st.info("✅ Planilha 'Pedidos' criada com a estrutura correta!")
+            st.info("✅ Planilha 'Pedidos' criada com suporte a fotos!")
         
         return worksheet
     
@@ -150,7 +175,7 @@ def conectar_google_sheets():
         
         Verifique se:
         1. O nome exato da planilha é 'Pedido_Compras'
-        2. Ela foi compartilhada com o email: bot-planilha@infralinkcompras.iam.gserviceaccount.com
+        2. Ela foi compartilhada com o email de serviço
         3. A permissão é de 'Editor'
         """)
         return None
@@ -160,7 +185,6 @@ def conectar_google_sheets():
         return None
 
 def obter_proximo_id(ws):
-    """Obtém o próximo ID disponível"""
     try:
         dados = ws.get_all_values()
         if len(dados) <= 1:
@@ -175,13 +199,11 @@ def obter_proximo_id(ws):
             return 1
         
         return max(ids) + 1
-    
     except Exception as e:
         st.error(f"Erro ao gerar ID: {str(e)}")
         return None
 
-def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
-    """Salva um novo pedido na planilha - ordem correta"""
+def salvar_pedido(ws, desc, qtd, solicitante, local, obs, foto_link=None):
     try:
         if not desc or not local or not solicitante:
             return None
@@ -190,7 +212,6 @@ def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
         if novo_id is None:
             return None
         
-        # Usar data/hora do Brasil (GMT-3)
         agora_brasil = obter_data_hora_brasil()
         agora_str = agora_brasil.strftime("%Y-%m-%d %H:%M:%S")
         
@@ -202,13 +223,13 @@ def salvar_pedido(ws, desc, qtd, solicitante, local, obs):
             solicitante.strip(),
             local.strip(),
             obs.strip() if obs else "",
+            foto_link if foto_link else "",
             'Aguardando',
             agora_str
         ]
         
         ws.append_row(linha)
         return novo_id
-    
     except Exception as e:
         st.error(f"❌ Erro ao salvar pedido: {str(e)}")
         return None
@@ -231,7 +252,7 @@ with col_logo:
 
 with col_title:
     st.title("📝 Pedidos de Compra")
-    # st.markdown("**By Robson Vilela 2026**")
+    st.markdown("**By Robson Vilela 2026**")
     st.caption("Preencha o formulário abaixo para solicitar um novo pedido")
 
 st.divider()
@@ -241,6 +262,9 @@ ws = conectar_google_sheets()
 if ws is None:
     st.error("Não foi possível conectar à planilha. Verifique suas configurações.")
     st.stop()
+
+# Conectar ao Drive para upload de fotos
+drive_service = conectar_google_drive()
 
 with st.container():
     st.markdown("### 📋 Novo Pedido de Compra")
@@ -264,8 +288,27 @@ with st.container():
             st.markdown("")
         
         observacoes = st.text_area("📝 Observações", 
-                                   placeholder="Informações adicionais sobre o pedido (prazo, fornecedor, etc.)...", 
+                                   placeholder="Informações adicionais sobre o pedido...", 
                                    height=80)
+        
+        # Upload de foto (OPCIONAL)
+        st.markdown("---")
+        st.markdown("### 📸 Foto do Item (Opcional)")
+        st.caption("Tire uma foto ou selecione da galeria para ajudar o comprador a identificar o item")
+        
+        foto_upload = st.file_uploader(
+            "Clique para adicionar uma foto", 
+            type=['jpg', 'jpeg', 'png', 'gif'],
+            help="Formatos aceitos: JPG, PNG, GIF. Tamanho máximo: 5MB"
+        )
+        
+        foto_preview = None
+        if foto_upload:
+            # Mostrar preview
+            foto_preview = Image.open(foto_upload)
+            st.image(foto_preview, caption="Pré-visualização da foto", width=200)
+        
+        st.markdown("---")
         
         col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 2])
         with col_btn2:
@@ -280,10 +323,25 @@ with st.container():
                 st.error("⚠️ Por favor, preencha o local de utilização")
             else:
                 with st.spinner("Enviando pedido..."):
-                    id_pedido = salvar_pedido(ws, descricao, quantidade, solicitante, local, observacoes)
+                    foto_link = None
+                    
+                    # Fazer upload da foto se houver
+                    if foto_upload:
+                        if drive_service:
+                            nome_arquivo = f"pedido_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                            foto_bytes = foto_upload.getvalue()
+                            foto_link = upload_imagem_drive(drive_service, foto_bytes, nome_arquivo, PASTA_DRIVE_ID)
+                            if foto_link:
+                                st.success("📸 Foto anexada com sucesso!")
+                            else:
+                                st.warning("⚠️ Não foi possível anexar a foto, mas o pedido será enviado")
+                    
+                    id_pedido = salvar_pedido(ws, descricao, quantidade, solicitante, local, observacoes, foto_link)
                     
                     if id_pedido:
                         st.success(f"✅ Pedido #{id_pedido} enviado com sucesso por {solicitante}!")
+                        if foto_link:
+                            st.info("📸 A foto foi anexada ao pedido e estará disponível para o comprador")
                         st.balloons()
                         st.rerun()
                     else:
@@ -299,7 +357,6 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
             df = df.sort_values('ID', ascending=False).head(5)
             
             if 'Data' in df.columns:
-                # Formatar data para padrão brasileiro
                 df['Data'] = df['Data'].apply(formatar_data_br)
             
             colunas_para_exibir = ['ID', 'Data', 'Descrição', 'Solicitante', 'Local', 'Status']
@@ -321,4 +378,4 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
 st.divider()
 col_footer1, col_footer2, col_footer3 = st.columns(3)
 with col_footer2:
-    st.caption(f"© {datetime.now().year} - Robson Vilela")
+    st.caption(f"© {datetime.now().year} - By Robson Vilela")
