@@ -187,7 +187,7 @@ col_logo, col_title = st.columns([1, 5])
 
 with col_logo:
     if logo:
-        st.image(logo, width=100)
+        st.image(logo, width=200)
     else:
         st.markdown("📦")
 
