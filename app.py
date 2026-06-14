@@ -15,6 +15,21 @@ st.set_page_config(
     layout="wide"
 )
 
+# ========== MENU PERSONALIZADO ==========
+with st.sidebar:
+    st.markdown("### 📋 Menu Principal")
+    st.markdown("---")
+    
+    # Menu atual (Solicitante)
+    st.page_link("app.py", label="📝 Solicitante", icon="📝")
+    st.page_link("pages/2_comprador.py", label="🔒 Comprador", icon="🔒")
+    
+    st.markdown("---")
+    
+    # Informação do usuário
+    st.caption(f"👤 Logado como: Solicitante")
+# ========================================
+
 # Função para obter data/hora local do Brasil (GMT-3)
 def obter_data_hora_brasil():
     utc_now = datetime.utcnow()
@@ -34,11 +49,8 @@ def formatar_data_br(data_str):
 # Função para converter imagem para Base64
 def imagem_para_base64(imagem_bytes):
     try:
-        # Redimensionar imagem para não ficar muito grande (max 500px de largura)
         img = Image.open(BytesIO(imagem_bytes))
         img.thumbnail((500, 500))
-        
-        # Converter para Base64
         buffered = BytesIO()
         img.save(buffered, format="JPEG", quality=70)
         img_base64 = base64.b64encode(buffered.getvalue()).decode()
@@ -172,7 +184,7 @@ with col_logo:
 
 with col_title:
     st.title("📝 Pedidos de Compra")
-    st.markdown("**Desenvolvedor Robson Vilela**")
+    st.markdown("**By Robson Vilela 2026**")
     st.caption("Preencha o formulário abaixo para solicitar um novo pedido")
 
 st.divider()
@@ -251,4 +263,4 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
         st.warning(f"Erro: {str(e)}")
 
 st.divider()
-st.caption(f"© {datetime.now().year} - Desenvolvedor: Robson Vilela")
+st.caption(f"© {datetime.now().year} - By Robson Vilela")
