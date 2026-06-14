@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 # Configuração do Drive
-PASTA_DRIVE_ID = "SEU_ID_DA_PASTA_AQUI"  # Você precisa criar uma pasta no Google Drive e colocar o ID aqui
+PASTA_DRIVE_ID = "1LjLATf8vQvWZjvZqQDfyGALXq1ck2VC5j"  # Você precisa criar uma pasta no Google Drive e colocar o ID aqui
 
 # Função para obter data/hora local do Brasil (GMT-3)
 def obter_data_hora_brasil():
