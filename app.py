@@ -15,6 +15,15 @@ st.set_page_config(
     layout="wide"
 )
 
+# ========== ESCONDER MENU PADRÃO ==========
+st.markdown("""
+<style>
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ========== MENU PERSONALIZADO ==========
 with st.sidebar:
     st.markdown("### 📋 Menu Principal")
