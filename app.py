@@ -18,7 +18,9 @@ st.set_page_config(
 )
 
 # Configuração do Drive
-PASTA_DRIVE_ID = "1LjLATf8vQvWZjvZqQDfyGALXq1ck2VC5j"  # Você precisa criar uma pasta no Google Drive e colocar o ID aqui
+# ⚠️ COLOQUE O ID DA SUA PASTA AQUI ⚠️
+# Exemplo: PASTA_DRIVE_ID = "1ABC123xyz789DEF456"
+PASTA_DRIVE_ID = "1LjLATf8vQvWZjvZqQDfyGALXq1ck2VC5j"  # ← SUBSTITUA PELO SEU ID
 
 # Função para obter data/hora local do Brasil (GMT-3)
 def obter_data_hora_brasil():
@@ -82,6 +84,11 @@ def conectar_google_drive():
 def upload_imagem_drive(service, imagem_bytes, nome_arquivo, pasta_id):
     """Faz upload da imagem para o Google Drive e retorna o link"""
     try:
+        # Verificar se a pasta ID foi configurada
+        if not pasta_id or pasta_id == "SEU_ID_DA_PASTA_AQUI":
+            st.warning("⚠️ Pasta do Drive não configurada. A foto não será salva.")
+            return None
+        
         # Salvar temporariamente
         temp_path = f"/tmp/{nome_arquivo}"
         with open(temp_path, "wb") as f:
@@ -97,16 +104,19 @@ def upload_imagem_drive(service, imagem_bytes, nome_arquivo, pasta_id):
         media = MediaFileUpload(temp_path, mimetype='image/jpeg', resumable=True)
         file = service.files().create(body=file_metadata, media_body=media, fields='id,webViewLink').execute()
         
-        # Tornar o arquivo público (opcional)
-        service.permissions().create(
-            fileId=file['id'],
-            body={'type': 'anyone', 'role': 'reader'}
-        ).execute()
+        # Tornar o arquivo público
+        try:
+            service.permissions().create(
+                fileId=file['id'],
+                body={'type': 'anyone', 'role': 'reader'}
+            ).execute()
+        except:
+            pass
         
         # Limpar arquivo temporário
         os.remove(temp_path)
         
-        # Retornar link de visualização
+        # Retornar link de visualização direta
         return f"https://drive.google.com/uc?id={file['id']}"
     except Exception as e:
         st.error(f"❌ Erro ao fazer upload da imagem: {str(e)}")
@@ -119,12 +129,11 @@ def corrigir_estrutura_planilha(ws):
         ordem_correta = ['ID', 'Data', 'Descrição', 'Quantidade', 'Solicitante', 'Local', 'Observações', 'Foto_Link', 'Status', 'Ultima_Atualizacao']
         
         if cabecalho != ordem_correta:
-            st.warning("⚠️ Atualizando estrutura da planilha para incluir fotos...")
-            
-            if len(cabecalho) < 9:
-                # Adicionar coluna de foto
+            # Se faltar a coluna de foto, adicionar
+            if 'Foto_Link' not in cabecalho:
+                st.info("📸 Adicionando coluna de foto à planilha...")
                 ws.add_cols(1)
-                ws.update_cell(1, 9, 'Foto_Link')
+                ws.update_cell(1, 8, 'Foto_Link')
                 st.success("✅ Coluna 'Foto_Link' adicionada!")
             
         return True
@@ -175,7 +184,7 @@ def conectar_google_sheets():
         
         Verifique se:
         1. O nome exato da planilha é 'Pedido_Compras'
-        2. Ela foi compartilhada com o email de serviço
+        2. Ela foi compartilhada com o email: bot-planilha@infralinkcompras.iam.gserviceaccount.com
         3. A permissão é de 'Editor'
         """)
         return None
@@ -302,9 +311,7 @@ with st.container():
             help="Formatos aceitos: JPG, PNG, GIF. Tamanho máximo: 5MB"
         )
         
-        foto_preview = None
         if foto_upload:
-            # Mostrar preview
             foto_preview = Image.open(foto_upload)
             st.image(foto_preview, caption="Pré-visualização da foto", width=200)
         
@@ -325,16 +332,14 @@ with st.container():
                 with st.spinner("Enviando pedido..."):
                     foto_link = None
                     
-                    # Fazer upload da foto se houver
-                    if foto_upload:
-                        if drive_service:
-                            nome_arquivo = f"pedido_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                            foto_bytes = foto_upload.getvalue()
-                            foto_link = upload_imagem_drive(drive_service, foto_bytes, nome_arquivo, PASTA_DRIVE_ID)
-                            if foto_link:
-                                st.success("📸 Foto anexada com sucesso!")
-                            else:
-                                st.warning("⚠️ Não foi possível anexar a foto, mas o pedido será enviado")
+                    if foto_upload and drive_service:
+                        nome_arquivo = f"pedido_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                        foto_bytes = foto_upload.getvalue()
+                        foto_link = upload_imagem_drive(drive_service, foto_bytes, nome_arquivo, PASTA_DRIVE_ID)
+                        if foto_link:
+                            st.success("📸 Foto anexada com sucesso!")
+                        else:
+                            st.warning("⚠️ Não foi possível anexar a foto, mas o pedido será enviado")
                     
                     id_pedido = salvar_pedido(ws, descricao, quantidade, solicitante, local, observacoes, foto_link)
                     
@@ -351,25 +356,31 @@ st.divider()
 
 with st.expander("📋 Ver últimos pedidos", expanded=False):
     try:
-        dados = ws.get_all_records()
-        if dados:
-            df = pd.DataFrame(dados)
-            df = df.sort_values('ID', ascending=False).head(5)
+        dados = ws.get_all_values()
+        if dados and len(dados) > 1:
+            # Criar DataFrame manualmente
+            cabecalho = dados[0]
+            registros = dados[1:]
             
-            if 'Data' in df.columns:
-                df['Data'] = df['Data'].apply(formatar_data_br)
+            # Limitar aos últimos 5
+            registros = registros[:5]
             
-            colunas_para_exibir = ['ID', 'Data', 'Descrição', 'Solicitante', 'Local', 'Status']
-            colunas_existentes = [col for col in colunas_para_exibir if col in df.columns]
-            
-            df_exibicao = df[colunas_existentes].copy()
-            df_exibicao.columns = ['ID', 'Data', 'Descrição', 'Solicitante', 'Local', 'Status']
-            
-            st.dataframe(
-                df_exibicao, 
-                use_container_width=True,
-                hide_index=True
-            )
+            # Exibir em tabela simples
+            for registro in registros:
+                if len(registro) >= 6:
+                    cols = st.columns([1, 2, 3, 2, 1])
+                    with cols[0]:
+                        st.write(f"#{registro[0]}")
+                    with cols[1]:
+                        data_fmt = formatar_data_br(registro[1]) if len(registro) > 1 else '-'
+                        st.write(data_fmt)
+                    with cols[2]:
+                        st.write(registro[2] if len(registro) > 2 else '-')
+                    with cols[3]:
+                        st.write(registro[4] if len(registro) > 4 else '-')
+                    with cols[4]:
+                        st.write(registro[8] if len(registro) > 8 else '-')
+                    st.divider()
         else:
             st.info("Nenhum pedido encontrado")
     except Exception as e:
