@@ -4,16 +4,17 @@ from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+import requests
+from PIL import Image
+from io import BytesIO
 
 # Configurações
 SENHA = "brasa@2026"
 
-# Configuração da página
 st.set_page_config(page_title="Gerenciar Pedidos", page_icon="📋", layout="wide")
 
 # Função para formatar data para exibição
 def formatar_data_br(data_str):
-    """Formata data do formato ISO para DD/MM/YYYY HH:MM"""
     try:
         if pd.isna(data_str) or data_str == '':
             return ''
@@ -22,7 +23,17 @@ def formatar_data_br(data_str):
     except:
         return str(data_str)
 
-# Função para conectar ao Google Sheets
+# Função para carregar imagem da URL
+def carregar_imagem_url(url):
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            img = Image.open(BytesIO(response.content))
+            return img
+    except:
+        pass
+    return None
+
 def conectar_google_sheets():
     try:
         segredos = st.secrets["gcp_service_account"]
@@ -49,23 +60,11 @@ def conectar_google_sheets():
         sheet = client.open("Pedido_Compras")
         return sheet.worksheet("Pedidos")
     
-    except gspread.SpreadsheetNotFound:
-        st.error("""
-        ❌ Planilha 'Pedido_Compras' não encontrada!
-        
-        Verifique se:
-        1. O nome exato da planilha é 'Pedido_Compras'
-        2. Ela foi compartilhada com o email: bot-planilha@infralinkcompras.iam.gserviceaccount.com
-        3. A permissão é de 'Editor'
-        """)
-        return None
-    
     except Exception as e:
         st.error(f"❌ Erro ao conectar: {str(e)}")
         return None
 
 def carregar_pedidos(ws):
-    """Carrega todos os pedidos da planilha"""
     try:
         todos_dados = ws.get_all_values()
         
@@ -93,21 +92,20 @@ def carregar_pedidos(ws):
                 'Solicitante': linha[4] if len(linha) > 4 else '',
                 'Local': linha[5] if len(linha) > 5 else '',
                 'Observações': linha[6] if len(linha) > 6 else '',
-                'Status': linha[7] if len(linha) > 7 else 'Aguardando',
-                'Ultima_Atualizacao': linha[8] if len(linha) > 8 else ''
+                'Foto_Link': linha[7] if len(linha) > 7 else '',
+                'Status': linha[8] if len(linha) > 8 else 'Aguardando',
+                'Ultima_Atualizacao': linha[9] if len(linha) > 9 else ''
             }
             
             if pedido['Descrição'] and pedido['ID'] > 0:
                 pedidos.append(pedido)
         
         return pedidos
-        
     except Exception as e:
         st.error(f"❌ Erro ao carregar pedidos: {str(e)}")
         return []
 
 def atualizar_status(ws, id_pedido, novo_status):
-    """Atualiza o status de um pedido"""
     try:
         todas_linhas = ws.get_all_values()
         
@@ -121,8 +119,8 @@ def atualizar_status(ws, id_pedido, novo_status):
                     break
         
         if linha_encontrada:
-            ws.update_cell(linha_encontrada, 8, novo_status)
-            ws.update_cell(linha_encontrada, 9, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            ws.update_cell(linha_encontrada, 9, novo_status)
+            ws.update_cell(linha_encontrada, 10, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             return True
         else:
             st.error(f"❌ Pedido #{id_pedido} não encontrado na planilha!")
@@ -132,11 +130,10 @@ def atualizar_status(ws, id_pedido, novo_status):
         st.error(f"❌ Erro ao atualizar status: {str(e)}")
         return False
 
-# Controle de autenticação
+# Autenticação
 if 'logado' not in st.session_state:
     st.session_state.logado = False
 
-# Tela de login
 if not st.session_state.logado:
     st.title("🔒 Área Restrita")
     st.markdown("### Acesso do Comprador")
@@ -152,7 +149,6 @@ if not st.session_state.logado:
                 st.error("❌ Senha incorreta! Tente novamente.")
     st.stop()
 
-# Dashboard principal
 st.title("📋 Gerenciamento de Pedidos")
 
 ws = conectar_google_sheets()
@@ -197,6 +193,9 @@ with st.sidebar:
     st.markdown("### 📊 Status da busca")
     st.info(f"**Total na planilha:** {len(df)} pedidos")
     
+    # Filtro para pedidos com foto
+    mostrar_com_foto = st.checkbox("📸 Mostrar apenas pedidos com foto")
+    
     if st.button("🔄 Recarregar dados", use_container_width=True):
         st.cache_resource.clear()
         st.rerun()
@@ -213,6 +212,10 @@ if solicitante_selecionado != 'Todos':
     df_filtrado = df_filtrado[df_filtrado['Solicitante'] == solicitante_selecionado]
     filtros_aplicados.append(f"Solicitante: {solicitante_selecionado}")
 
+if mostrar_com_foto:
+    df_filtrado = df_filtrado[df_filtrado['Foto_Link'].notna() & (df_filtrado['Foto_Link'] != '')]
+    filtros_aplicados.append("Apenas pedidos com foto")
+
 if data_inicio or data_fim:
     if 'Data' in df_filtrado.columns:
         df_filtrado['Data'] = pd.to_datetime(df_filtrado['Data'], errors='coerce')
@@ -225,9 +228,6 @@ if data_inicio or data_fim:
         if data_fim:
             df_filtrado = df_filtrado[df_filtrado['Data_Somente'] <= data_fim]
             filtros_aplicados.append(f"Data ≤ {data_fim}")
-        
-        if 'Data_Somente' in df_filtrado.columns:
-            df_filtrado = df_filtrado.drop(columns=['Data_Somente'])
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Filtros aplicados:")
@@ -238,22 +238,15 @@ if filtros_aplicados:
     st.sidebar.markdown(f"**Resultado:** {len(df_filtrado)} pedido(s)")
     
     if len(df_filtrado) == 0 and len(df) > 0:
-        st.sidebar.warning("""
-        ⚠️ **Nenhum pedido encontrado!**
-        
-        **Sugestões:**
-        • Remova alguns filtros
-        • Verifique se o nome do solicitante está correto
-        • Expanda o período de datas
-        """)
+        st.sidebar.warning("Nenhum pedido encontrado com os filtros selecionados.")
 else:
     st.sidebar.info("📌 Nenhum filtro aplicado - mostrando todos os pedidos")
 
 # Estatísticas
 st.markdown("### 📊 Resumo")
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 with col1:
-    st.metric("Total de Pedidos", len(df_filtrado))
+    st.metric("Total", len(df_filtrado))
 with col2:
     st.metric("Aguardando", len(df_filtrado[df_filtrado['Status'] == 'Aguardando']))
 with col3:
@@ -262,6 +255,8 @@ with col4:
     st.metric("Entregues", len(df_filtrado[df_filtrado['Status'] == 'Entregue']))
 with col5:
     st.metric("Cancelados", len(df_filtrado[df_filtrado['Status'] == 'Cancelado']))
+with col6:
+    st.metric("📸 Com Foto", len(df_filtrado[df_filtrado['Foto_Link'].notna() & (df_filtrado['Foto_Link'] != '')]))
 
 # Exibir pedidos
 st.markdown("### 📦 Lista de Pedidos")
@@ -282,7 +277,6 @@ else:
         }
         cor_fundo = cores.get(row['Status'], '#F5F5F5')
         
-        # Formatar data para exibição
         data_exibicao = formatar_data_br(row['Data'])
         
         with st.container():
@@ -312,34 +306,49 @@ else:
                         <p><strong>📝 Material:</strong> {row['Descrição']}</p>
                         <p><strong>🔢 Quantidade:</strong> {row['Quantidade']}</p>
                         <p><strong>👤 Solicitante:</strong> {row['Solicitante']}</p>
-                    </div>
-                    <div>
                         <p><strong>📍 Local:</strong> {row['Local']}</p>
                         <p><strong>📅 Data:</strong> {data_exibicao}</p>
+                    </div>
+                    <div>
                         <p><strong>📝 Observações:</strong> {row.get('Observações', '-')}</p>
+            """)
+            
+            # Exibir foto se houver
+            if row.get('Foto_Link') and row['Foto_Link'] != '':
+                st.markdown(f'<p><strong>📸 Foto do Item:</strong></p>', unsafe_allow_html=True)
+                img = carregar_imagem_url(row['Foto_Link'])
+                if img:
+                    st.image(img, use_container_width=False, width=200)
+                else:
+                    st.markdown(f'<a href="{row["Foto_Link"]}" target="_blank">🔗 Clique aqui para ver a foto</a>', unsafe_allow_html=True)
+            else:
+                st.markdown('<p><em>📸 Nenhuma foto anexada</em></p>', unsafe_allow_html=True)
+            
+            st.markdown(f"""
                     </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
+            # Botões de ação
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 if st.button("⏳ Aguardando", key=f"btn_ag_{pedido_id}", use_container_width=True):
                     if atualizar_status(ws, pedido_id, 'Aguardando'):
-                        st.success(f"✅ Pedido #{pedido_id} atualizado para Aguardando!")
+                        st.success(f"✅ Pedido #{pedido_id} atualizado!")
                         st.rerun()
             
             with col2:
                 if st.button("🟡 Comprando", key=f"btn_comp_{pedido_id}", use_container_width=True):
                     if atualizar_status(ws, pedido_id, 'Comprando'):
-                        st.success(f"✅ Pedido #{pedido_id} atualizado para Comprando!")
+                        st.success(f"✅ Pedido #{pedido_id} atualizado!")
                         st.rerun()
             
             with col3:
                 if st.button("✅ Entregue", key=f"btn_ent_{pedido_id}", use_container_width=True):
                     if atualizar_status(ws, pedido_id, 'Entregue'):
-                        st.success(f"✅ Pedido #{pedido_id} atualizado para Entregue!")
+                        st.success(f"✅ Pedido #{pedido_id} atualizado!")
                         st.rerun()
             
             with col4:
