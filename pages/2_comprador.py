@@ -12,6 +12,24 @@ SENHA = "brasa@2026"
 
 st.set_page_config(page_title="Gerenciar Pedidos", page_icon="📋", layout="wide")
 
+# ========== MENU PERSONALIZADO ==========
+with st.sidebar:
+    st.markdown("### 📋 Menu Principal")
+    st.markdown("---")
+    
+    # Menu
+    st.page_link("app.py", label="📝 Solicitante", icon="📝")
+    st.page_link("pages/2_comprador.py", label="🔒 Comprador", icon="🔒")
+    
+    st.markdown("---")
+    
+    # Informação do usuário (será atualizada após login)
+    if st.session_state.get('logado', False):
+        st.caption(f"👤 Logado como: Comprador")
+    else:
+        st.caption(f"👤 Área restrita")
+# ========================================
+
 def formatar_data_br(data_str):
     try:
         if pd.isna(data_str) or data_str == '':
@@ -26,7 +44,6 @@ def base64_para_imagem(base64_str):
     try:
         if not base64_str or base64_str == '':
             return None
-        # Remover o prefixo se existir
         if ',' in base64_str:
             base64_str = base64_str.split(',')[1]
         image_bytes = base64.b64decode(base64_str)
@@ -100,14 +117,16 @@ if 'logado' not in st.session_state:
     st.session_state.logado = False
 
 if not st.session_state.logado:
-    st.title("🔒 Área Restrita")
-    senha = st.text_input("Digite a senha:", type="password")
-    if st.button("Entrar"):
-        if senha == SENHA:
-            st.session_state.logado = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta!")
+    st.title("🔒 Área Restrita - Comprador")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        senha = st.text_input("Digite a senha:", type="password")
+        if st.button("Entrar", use_container_width=True):
+            if senha == SENHA:
+                st.session_state.logado = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta!")
     st.stop()
 
 st.title("📋 Gerenciamento de Pedidos")
@@ -128,11 +147,9 @@ with st.sidebar:
     st.header("🔍 Filtros")
     status_filtro = st.multiselect("Status", ['Aguardando', 'Comprando', 'Entregue', 'Cancelado'], default=['Aguardando', 'Comprando'])
     solicitante_filtro = st.selectbox("Solicitante", ['Todos'] + sorted(df['Solicitante'].unique().tolist()))
-    
-    # Filtro para pedidos com foto
     apenas_com_foto = st.checkbox("📸 Apenas pedidos com foto")
     
-    if st.button("🔄 Recarregar"):
+    if st.button("🔄 Recarregar", use_container_width=True):
         st.rerun()
 
 # Aplicar filtros
@@ -167,7 +184,6 @@ if df_filtrado.empty:
     st.info("Nenhum pedido encontrado com os filtros selecionados.")
 else:
     for _, row in df_filtrado.sort_values('ID', ascending=False).iterrows():
-        # Cor de fundo baseada no status
         cores = {
             'Aguardando': '#FFF3E0',
             'Comprando': '#FFF9C4',
@@ -199,36 +215,28 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-            # Exibir foto se houver
             if row['Foto_Base64'] and row['Foto_Base64'] != '':
                 st.markdown("**📸 Foto do item:**")
                 img = base64_para_imagem(row['Foto_Base64'])
                 if img:
                     st.image(img, use_container_width=False, width=250)
-                else:
-                    st.warning("Não foi possível carregar a imagem")
             
-            # Botões de ação
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 if st.button("⏳ Aguardando", key=f"ag_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Aguardando'):
-                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
                         st.rerun()
             with col2:
                 if st.button("🟡 Comprando", key=f"comp_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Comprando'):
-                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
                         st.rerun()
             with col3:
                 if st.button("✅ Entregue", key=f"ent_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Entregue'):
-                        st.success(f"✅ Pedido #{row['ID']} atualizado!")
                         st.rerun()
             with col4:
                 if st.button("❌ Cancelado", key=f"can_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Cancelado'):
-                        st.warning(f"⚠️ Pedido #{row['ID']} cancelado")
                         st.rerun()
             
             st.divider()
