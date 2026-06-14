@@ -172,7 +172,7 @@ with col_logo:
 
 with col_title:
     st.title("📝 Pedidos de Compra")
-    st.markdown("**By Robson Vilela 2026**")
+    st.markdown("**Desenvolvedor Robson Vilela**")
     st.caption("Preencha o formulário abaixo para solicitar um novo pedido")
 
 st.divider()
@@ -251,4 +251,4 @@ with st.expander("📋 Ver últimos pedidos", expanded=False):
         st.warning(f"Erro: {str(e)}")
 
 st.divider()
-st.caption(f"© {datetime.now().year} - By Robson Vilela")
+st.caption(f"© {datetime.now().year} - Desenvolvedor: Robson Vilela")
