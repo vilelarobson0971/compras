@@ -187,13 +187,13 @@ col_logo, col_title = st.columns([1, 5])
 
 with col_logo:
     if logo:
-        st.image(logo, width=200)
+        st.image(logo, width=100)
     else:
         st.markdown("📦")
 
 with col_title:
     st.title("📝 Pedidos de Compra")
-    st.markdown("**Desenvolvedor Robson Vilela**")
+    st.markdown("**By Robson Vilela 2026**")
     st.caption("Preencha o formulário abaixo para solicitar um novo pedido")
 
 st.divider()
@@ -257,19 +257,82 @@ with st.container():
 
 st.divider()
 
-with st.expander("📋 Ver últimos pedidos", expanded=False):
+# ========== ÚLTIMOS PEDIDOS (ATUALIZADO) ==========
+with st.expander("📋 Ver últimos pedidos", expanded=True):
+    st.markdown("### 📦 Últimos 10 Pedidos Ativos")
+    st.caption("Mostrando apenas pedidos em Aguardando, Comprando ou Em rota de entrega")
+    
     try:
         dados = ws.get_all_values()
         if dados and len(dados) > 1:
-            for registro in dados[1:6]:
-                if len(registro) >= 5:
-                    data_fmt = formatar_data_br(registro[1]) if len(registro) > 1 else '-'
-                    st.write(f"**#{registro[0]}** - {data_fmt} - {registro[2][:50]}... - {registro[4]}")
-                    st.divider()
+            # Coletar todos os pedidos
+            pedidos_lista = []
+            for registro in dados[1:]:
+                if len(registro) >= 9:
+                    status = registro[8] if len(registro) > 8 else 'Aguardando'
+                    # Filtrar: não mostrar Cancelados ou Entregues
+                    if status not in ['Cancelado', 'Entregue']:
+                        pedidos_lista.append({
+                            'ID': registro[0],
+                            'Data': registro[1] if len(registro) > 1 else '',
+                            'Descrição': registro[2] if len(registro) > 2 else '',
+                            'Solicitante': registro[4] if len(registro) > 4 else '',
+                            'Status': status
+                        })
+            
+            # Ordenar por ID decrescente e pegar os 10 últimos
+            pedidos_lista.sort(key=lambda x: int(x['ID']), reverse=True)
+            pedidos_lista = pedidos_lista[:10]
+            
+            if pedidos_lista:
+                # Criar DataFrame para exibição
+                df_pedidos = pd.DataFrame(pedidos_lista)
+                
+                # Formatar data
+                df_pedidos['Data'] = df_pedidos['Data'].apply(formatar_data_br)
+                
+                # Mapear cores para os status
+                def cor_status(status):
+                    cores = {
+                        'Aguardando': '🟡',
+                        'Comprando': '🟠',
+                        'Em rota de entrega': '🔵'
+                    }
+                    return cores.get(status, '⚪')
+                
+                df_pedidos['Status'] = df_pedidos['Status'].apply(lambda x: f"{cor_status(x)} {x}")
+                
+                # Renomear colunas para exibição
+                df_pedidos = df_pedidos.rename(columns={
+                    'ID': 'Nº',
+                    'Data': 'Data/Hora',
+                    'Descrição': 'Material',
+                    'Solicitante': 'Solicitante',
+                    'Status': 'Status'
+                })
+                
+                # Exibir tabela
+                st.dataframe(
+                    df_pedidos,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Nº": st.column_config.TextColumn("Nº", width="small"),
+                        "Data/Hora": st.column_config.TextColumn("Data/Hora", width="medium"),
+                        "Material": st.column_config.TextColumn("Material", width="large"),
+                        "Solicitante": st.column_config.TextColumn("Solicitante", width="medium"),
+                        "Status": st.column_config.TextColumn("Status", width="medium"),
+                    }
+                )
+                
+                # Mostrar quantidade
+                st.caption(f"📊 Mostrando {len(pedidos_lista)} pedido(s) ativos (excluídos: Entregues e Cancelados)")
+            else:
+                st.info("📭 Nenhum pedido ativo encontrado")
         else:
-            st.info("Nenhum pedido encontrado")
+            st.info("📭 Nenhum pedido encontrado")
     except Exception as e:
-        st.warning(f"Erro: {str(e)}")
+        st.warning(f"Erro ao carregar pedidos: {str(e)}")
 
 st.divider()
-st.caption(f"© {datetime.now().year} - Desenvolvedor Robson Vilela")
+st.caption(f"© {datetime.now().year} - By Robson Vilela")
