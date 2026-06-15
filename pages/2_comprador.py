@@ -26,13 +26,11 @@ with st.sidebar:
     st.markdown("### 📋 Menu Principal")
     st.markdown("---")
     
-    # Menu
     st.page_link("app.py", label="📝 Solicitante", icon="📝")
     st.page_link("pages/2_comprador.py", label="🔒 Comprador", icon="🔒")
     
     st.markdown("---")
     
-    # Informação do usuário (será atualizada após login)
     if st.session_state.get('logado', False):
         st.caption(f"👤 Logado como: Comprador")
     else:
@@ -49,7 +47,6 @@ def formatar_data_br(data_str):
         return str(data_str)
 
 def base64_para_imagem(base64_str):
-    """Converte string Base64 para imagem"""
     try:
         if not base64_str or base64_str == '':
             return None
@@ -154,7 +151,8 @@ df = pd.DataFrame(pedidos)
 # Filtros
 with st.sidebar:
     st.header("🔍 Filtros")
-    status_filtro = st.multiselect("Status", ['Aguardando', 'Comprando', 'Entregue', 'Cancelado'], default=['Aguardando', 'Comprando'])
+    status_options = ['Aguardando', 'Comprando', 'Em rota de entrega', 'Entregue', 'Cancelado']
+    status_filtro = st.multiselect("Status", status_options, default=['Aguardando', 'Comprando', 'Em rota de entrega'])
     solicitante_filtro = st.selectbox("Solicitante", ['Todos'] + sorted(df['Solicitante'].unique().tolist()))
     apenas_com_foto = st.checkbox("📸 Apenas pedidos com foto")
     
@@ -180,11 +178,11 @@ with col2:
 with col3:
     st.metric("Comprando", len(df_filtrado[df_filtrado['Status'] == 'Comprando']))
 with col4:
-    st.metric("Entregues", len(df_filtrado[df_filtrado['Status'] == 'Entregue']))
+    st.metric("Em Rota", len(df_filtrado[df_filtrado['Status'] == 'Em rota de entrega']))
 with col5:
-    st.metric("Cancelados", len(df_filtrado[df_filtrado['Status'] == 'Cancelado']))
+    st.metric("Entregues", len(df_filtrado[df_filtrado['Status'] == 'Entregue']))
 with col6:
-    st.metric("📸 Com Foto", len(df_filtrado[df_filtrado['Foto_Base64'].notna() & (df_filtrado['Foto_Base64'] != '')]))
+    st.metric("Cancelados", len(df_filtrado[df_filtrado['Status'] == 'Cancelado']))
 
 # Lista de pedidos
 st.markdown("### 📦 Lista de Pedidos")
@@ -196,6 +194,7 @@ else:
         cores = {
             'Aguardando': '#FFF3E0',
             'Comprando': '#FFF9C4',
+            'Em rota de entrega': '#E3F2FD',
             'Entregue': '#C8E6C9',
             'Cancelado': '#FFCDD2'
         }
@@ -230,7 +229,7 @@ else:
                 if img:
                     st.image(img, use_container_width=False, width=250)
             
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
                 if st.button("⏳ Aguardando", key=f"ag_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Aguardando'):
@@ -240,10 +239,14 @@ else:
                     if atualizar_status(ws, row['ID'], 'Comprando'):
                         st.rerun()
             with col3:
+                if st.button("🚚 Em Rota", key=f"rota_{row['ID']}", use_container_width=True):
+                    if atualizar_status(ws, row['ID'], 'Em rota de entrega'):
+                        st.rerun()
+            with col4:
                 if st.button("✅ Entregue", key=f"ent_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Entregue'):
                         st.rerun()
-            with col4:
+            with col5:
                 if st.button("❌ Cancelado", key=f"can_{row['ID']}", use_container_width=True):
                     if atualizar_status(ws, row['ID'], 'Cancelado'):
                         st.rerun()
