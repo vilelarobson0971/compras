@@ -193,7 +193,7 @@ with col_logo:
 
 with col_title:
     st.title("📝 Pedidos de Compra")
-    st.markdown("**Desenvolvedor Robson Vilela**")
+    # st.markdown("**Desenvolvedor Robson Vilela**")
     # st.caption("Preencha o formulário abaixo para solicitar um novo pedido")
 
 st.divider()
