@@ -8,6 +8,8 @@ from PIL import Image
 import os
 import base64
 from io import BytesIO
+import smtplib
+from email.mime.text import MIMEText
 
 st.set_page_config(
     page_title="Sistema de Pedidos - Infralink", 
@@ -81,6 +83,44 @@ def carregar_logo():
             return None
     except Exception as e:
         return None
+
+# Função para enviar e-mail de notificação de novo pedido
+def enviar_email_notificacao(id_pedido, desc, qtd, solicitante, local, obs):
+    try:
+        config_email = st.secrets["email"]
+        remetente = config_email["remetente"]
+        senha_app = config_email["senha_app"]
+        destinatario = config_email["destinatario"]
+
+        corpo = f"""
+Novo pedido de compra registrado!
+
+Nº do Pedido: {id_pedido}
+Descrição: {desc}
+Quantidade: {qtd}
+Solicitante: {solicitante}
+Local de Utilização: {local}
+Observações: {obs if obs else '-'}
+Data/Hora: {obter_data_hora_brasil().strftime('%d/%m/%Y %H:%M')}
+
+Acesse o sistema para mais detalhes.
+"""
+
+        msg = MIMEText(corpo, "plain", "utf-8")
+        msg["Subject"] = f"🛒 Novo Pedido de Compra #{id_pedido} - {solicitante}"
+        msg["From"] = remetente
+        msg["To"] = destinatario
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as servidor:
+            servidor.starttls()
+            servidor.login(remetente, senha_app)
+            servidor.sendmail(remetente, destinatario, msg.as_string())
+
+        return True
+    except Exception as e:
+        # Não interrompe o fluxo do pedido caso o e-mail falhe
+        st.warning(f"⚠️ Pedido salvo, mas houve erro ao enviar e-mail de notificação: {str(e)}")
+        return False
 
 # Conectar ao Google Sheets
 def conectar_google_sheets():
@@ -250,6 +290,9 @@ with st.container():
                             st.success(f"✅ Pedido #{id_pedido} enviado com sucesso com foto!")
                         else:
                             st.success(f"✅ Pedido #{id_pedido} enviado com sucesso!")
+
+                        enviar_email_notificacao(id_pedido, descricao, quantidade, solicitante, local, observacoes)
+
                         st.balloons()
                         st.rerun()
                     else:
