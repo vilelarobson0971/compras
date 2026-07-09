@@ -99,6 +99,7 @@ def carregar_pedidos(ws):
                     'Observações': linha[6] if len(linha) > 6 else '',
                     'Foto_Base64': linha[7] if len(linha) > 7 else '',
                     'Status': linha[8] if len(linha) > 8 else 'Aguardando',
+                    'Obs_Comprador': linha[10] if len(linha) > 10 else '',
                 })
         return pedidos
     except Exception as e:
@@ -112,6 +113,19 @@ def atualizar_status(ws, id_pedido, novo_status):
             if linha and len(linha) > 0 and str(linha[0]) == str(id_pedido):
                 ws.update_cell(i, 9, novo_status)
                 ws.update_cell(i, 10, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                return True
+        return False
+    except Exception as e:
+        st.error(f"Erro: {str(e)}")
+        return False
+
+def atualizar_observacao_comprador(ws, id_pedido, nova_obs):
+    try:
+        dados = ws.get_all_values()
+        for i, linha in enumerate(dados, start=1):
+            if linha and len(linha) > 0 and str(linha[0]) == str(id_pedido):
+                # Coluna 11 (K) = Observação interna do comprador
+                ws.update_cell(i, 11, nova_obs)
                 return True
         return False
     except Exception as e:
@@ -217,7 +231,7 @@ else:
                     </div>
                     <div>
                         <p><strong>📅 Data:</strong> {formatar_data_br(row['Data'])}</p>
-                        <p><strong>📝 Observações:</strong> {row['Observações'] if row['Observações'] else '-'}</p>
+                        <p><strong>📝 Observações do Solicitante:</strong> {row['Observações'] if row['Observações'] else '-'}</p>
                     </div>
                 </div>
             </div>
@@ -228,6 +242,24 @@ else:
                 img = base64_para_imagem(row['Foto_Base64'])
                 if img:
                     st.image(img, use_container_width=False, width=250)
+            
+            # ===== Campo editável: Observação interna do Comprador =====
+            st.markdown("**🗒️ Observação do Comprador (uso interno):**")
+            obs_key = f"obs_comprador_{row['ID']}"
+            nova_obs_comprador = st.text_area(
+                "Anote aqui detalhes importantes deste pedido (ex: prazo, fornecedor, atraso, etc.)",
+                value=row['Obs_Comprador'],
+                key=obs_key,
+                label_visibility="collapsed",
+                height=80
+            )
+            col_salvar, _ = st.columns([1, 4])
+            with col_salvar:
+                if st.button("💾 Salvar Observação", key=f"salvar_obs_{row['ID']}", use_container_width=True):
+                    if atualizar_observacao_comprador(ws, row['ID'], nova_obs_comprador):
+                        st.success("Observação salva!")
+                        st.rerun()
+            # =============================================================
             
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
